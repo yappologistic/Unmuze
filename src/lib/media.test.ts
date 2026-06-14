@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { canTransitionDownload, defaultSettings, detectPlatform, sanitizeFilename, validateMediaUrl } from "@/lib/media"
+import { canTransitionDownload, defaultSettings, detectPlatform, isLikelyPlaylistUrl, sanitizeFilename, validateMediaUrl } from "@/lib/media"
 
 describe("media URL handling", () => {
   it("detects supported platforms", () => {
@@ -18,6 +18,13 @@ describe("media URL handling", () => {
     expect(validateMediaUrl("ftp://youtu.be/abc").valid).toBe(false)
     expect(validateMediaUrl("not a url").valid).toBe(false)
     expect(validateMediaUrl("https://example.com/video").valid).toBe(false)
+  })
+
+  it("detects playlist-shaped URLs", () => {
+    expect(isLikelyPlaylistUrl("https://www.youtube.com/playlist?list=PL123")).toBe(true)
+    expect(isLikelyPlaylistUrl("https://www.youtube.com/watch?v=abc&list=PL123")).toBe(true)
+    expect(isLikelyPlaylistUrl("https://soundcloud.com/artist/sets/mix")).toBe(true)
+    expect(isLikelyPlaylistUrl("https://youtu.be/abc")).toBe(false)
   })
 })
 

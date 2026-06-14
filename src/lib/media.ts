@@ -22,6 +22,25 @@ export type Inspection = {
   suggestedFileName?: string | null
 }
 
+export type PlaylistEntry = {
+  id: string
+  url: string
+  title: string
+  creator?: string | null
+  duration?: number | null
+  thumbnail?: string | null
+  index: number
+}
+
+export type PlaylistInspection = {
+  platform: Platform
+  downloadable: boolean
+  title?: string | null
+  creator?: string | null
+  entries: PlaylistEntry[]
+  limitation?: string | null
+}
+
 export type Settings = {
   theme: "light" | "dark" | "system"
   defaultOutputFolder: string
@@ -52,6 +71,9 @@ export type DownloadItem = {
   progress: number
   message: string
   path?: string
+  playlistTitle?: string
+  playlistIndex?: number
+  playlistTotal?: number
 }
 
 export const defaultSettings: Settings = {
@@ -90,6 +112,23 @@ export function validateMediaUrl(rawUrl: string): { valid: true; url: URL } | { 
     return { valid: true, url }
   } catch {
     return { valid: false, message: "Paste a complete media URL." }
+  }
+}
+
+export function isLikelyPlaylistUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl.trim())
+    const platform = detectPlatform(url.toString())
+    if (platform === "youTube") {
+      return url.searchParams.has("list") || url.pathname.toLowerCase().includes("/playlist")
+    }
+    if (platform === "soundCloud") {
+      const path = url.pathname.toLowerCase()
+      return path.includes("/sets/") || path.includes("/playlists/")
+    }
+    return false
+  } catch {
+    return false
   }
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertCircleIcon,
   DownloadIcon,
@@ -7,6 +7,7 @@ import {
   HistoryIcon,
   InfoIcon,
   LinkIcon,
+  ListMusicIcon,
   MoonIcon,
   MusicIcon,
   SearchIcon,
@@ -42,7 +43,10 @@ import {
   type DownloadMode,
   type HistoryItem,
   type Inspection,
+  isLikelyPlaylistUrl,
   platformLabel,
+  type PlaylistEntry,
+  type PlaylistInspection,
   sanitizeFilename,
   type Settings,
   validateMediaUrl,
@@ -51,6 +55,7 @@ import {
   cancelDownload,
   chooseFolder,
   inspectMedia,
+  inspectPlaylist,
   loadHistory,
   loadSettings,
   onDownloadFinished,
@@ -60,6 +65,15 @@ import {
   saveSettings,
   startDownload,
 } from "@/lib/tauri"
+
+type PendingDownload = {
+  id: string
+  request: Record<string, unknown>
+}
+
+function playlistEntryKey(entry: PlaylistEntry) {
+  return `${entry.index}:${entry.id}`
+}
 
 function App() {
   const [tab, setTab] = useState("download")
@@ -74,14 +88,29 @@ function App() {
   const [quality, setQuality] = useState<"best" | "balanced">("best")
   const [outputDir, setOutputDir] = useState("")
   const [fileName, setFileName] = useState("")
+  const [playlistUrl, setPlaylistUrl] = useState("")
+  const [playlistInspection, setPlaylistInspection] = useState<PlaylistInspection | null>(null)
+  const [playlistChecking, setPlaylistChecking] = useState(false)
+  const [playlistError, setPlaylistError] = useState("")
+  const [playlistMode, setPlaylistMode] = useState<DownloadMode>("audio")
+  const [playlistQuality, setPlaylistQuality] = useState<"best" | "balanced">("best")
+  const [playlistOutputDir, setPlaylistOutputDir] = useState("")
+  const [selectedPlaylistIds, setSelectedPlaylistIds] = useState<Set<string>>(new Set())
+  const playlistQueueRef = useRef<PendingDownload[]>([])
+  const playlistRunningRef = useRef(false)
+  const playlistDownloadIdsRef = useRef<Set<string>>(new Set())
+  const cancelledQueuedIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     loadSettings()
       .then((loaded) => {
         setSettings(loaded)
         setMode(loaded.defaultFormat)
+        setPlaylistMode(loaded.defaultFormat)
         setQuality(loaded.defaultQuality)
+        setPlaylistQuality(loaded.defaultQuality)
         setOutputDir(loaded.defaultOutputFolder)
+        setPlaylistOutputDir(loaded.defaultOutputFolder)
       })
       .catch(() => setSettings(defaultSettings))
     loadHistory().then(setHistory).catch(() => setHistory([]))
@@ -97,6 +126,40 @@ function App() {
       root.classList.add(settings.theme)
     }
   }, [settings.theme])
+
+  const startNextPlaylistDownload = useCallback(() => {
+    if (playlistRunningRef.current) return
+    const next = playlistQueueRef.current.shift()
+    if (!next) return
+    if (cancelledQueuedIdsRef.current.has(next.id)) {
+      cancelledQueuedIdsRef.current.delete(next.id)
+      startNextPlaylistDownload()
+      return
+    }
+    playlistRunningRef.current = true
+    setDownloads((items) =>
+      items.map((item) =>
+        item.id === next.id
+          ? { ...item, status: "downloading", message: "Starting playlist item." }
+          : item,
+      ),
+    )
+    startDownload(next.request)
+      .then((path) => {
+        setDownloads((items) => items.map((item) => (item.id === next.id ? { ...item, path } : item)))
+      })
+      .catch((err) => {
+        playlistRunningRef.current = false
+        setDownloads((items) =>
+          items.map((item) =>
+            item.id === next.id
+              ? { ...item, status: "failed", message: readableError(err) }
+              : item,
+          ),
+        )
+        startNextPlaylistDownload()
+      })
+  }, [])
 
   useEffect(() => {
     const disposers: Array<() => void> = []
@@ -117,9 +180,11 @@ function App() {
       )
     }).then((dispose) => disposers.push(dispose))
     onDownloadFinished((payload) => {
+      const isPlaylistQueued = playlistDownloadIdsRef.current.has(payload.id)
       setDownloads((items) =>
         items.map((item) => {
           if (item.id !== payload.id) return item
+          if (item.status === "cancelled") return item
           const status = payload.status
           if (status === "completed" && settings.keepHistory) {
             const completed: HistoryItem = {
@@ -139,12 +204,17 @@ function App() {
           return { ...item, status, progress: status === "completed" ? 100 : item.progress, path: payload.path, message: status === "completed" ? "Saved locally." : "Download failed." }
         }),
       )
+      if (isPlaylistQueued) {
+        playlistRunningRef.current = false
+        window.setTimeout(startNextPlaylistDownload, 0)
+      }
     }).then((dispose) => disposers.push(dispose))
     return () => disposers.forEach((dispose) => dispose())
-  }, [settings.keepHistory])
+  }, [settings.keepHistory, startNextPlaylistDownload])
 
   const platform = useMemo(() => detectPlatform(url), [url])
   const urlValidation = useMemo(() => (url.trim() ? validateMediaUrl(url) : null), [url])
+  const playlistValidation = useMemo(() => (playlistUrl.trim() ? validateMediaUrl(playlistUrl) : null), [playlistUrl])
 
   async function handleInspect() {
     setError("")
@@ -182,6 +252,109 @@ function App() {
   async function handleChooseFolder() {
     const selected = await chooseFolder()
     if (selected) setOutputDir(selected)
+  }
+
+  async function handleChoosePlaylistFolder() {
+    const selected = await chooseFolder()
+    if (selected) setPlaylistOutputDir(selected)
+  }
+
+  async function handleInspectPlaylist() {
+    setPlaylistError("")
+    setPlaylistInspection(null)
+    setSelectedPlaylistIds(new Set())
+    const validation = validateMediaUrl(playlistUrl)
+    if (!validation.valid) {
+      setPlaylistError(validation.message)
+      return
+    }
+    setPlaylistChecking(true)
+    try {
+      const result = await inspectPlaylist(validation.url.toString())
+      setPlaylistInspection(result)
+      setPlaylistMode(result.platform === "soundCloud" ? "audio" : settings.defaultFormat)
+      if (result.downloadable) {
+        setSelectedPlaylistIds(new Set(result.entries.map(playlistEntryKey)))
+      }
+      if (!result.downloadable && result.limitation) {
+        setPlaylistError(result.limitation)
+      }
+    } catch (err) {
+      setPlaylistError(readableError(err))
+    } finally {
+      setPlaylistChecking(false)
+    }
+  }
+
+  function togglePlaylistEntry(id: string, checked: boolean) {
+    setSelectedPlaylistIds((current) => {
+      const next = new Set(current)
+      if (checked) {
+        next.add(id)
+      } else {
+        next.delete(id)
+      }
+      return next
+    })
+  }
+
+  function setAllPlaylistEntries(checked: boolean) {
+    if (!playlistInspection) return
+    setSelectedPlaylistIds(checked ? new Set(playlistInspection.entries.map(playlistEntryKey)) : new Set())
+  }
+
+  async function handleStartPlaylistDownload() {
+    if (!playlistInspection?.downloadable) return
+    if (!playlistOutputDir) {
+      toast.error("Choose an output folder first.")
+      return
+    }
+    const selectedEntries = playlistInspection.entries.filter((entry) => selectedPlaylistIds.has(playlistEntryKey(entry)))
+    if (selectedEntries.length === 0) {
+      toast.error("Select at least one playlist item.")
+      return
+    }
+    const total = selectedEntries.length
+    const playlistTitle = playlistInspection.title || "Playlist"
+    const queuedItems = selectedEntries.map((entry, position) => {
+      const id = crypto.randomUUID()
+      const numberedName = `${String(position + 1).padStart(2, "0")} - ${sanitizeFilename(entry.title)}`
+      const item: DownloadItem = {
+        id,
+        url: entry.url,
+        title: entry.title,
+        platform: playlistInspection.platform,
+        mode: playlistMode,
+        quality: playlistQuality,
+        outputDir: playlistOutputDir,
+        fileName: numberedName,
+        status: "waiting",
+        progress: 0,
+        message: "Waiting in playlist queue.",
+        playlistTitle,
+        playlistIndex: position + 1,
+        playlistTotal: total,
+      }
+      const request: PendingDownload = {
+        id,
+        request: {
+          id,
+          url: entry.url,
+          mode: playlistMode,
+          quality: playlistQuality,
+          outputDir: playlistOutputDir,
+          fileName: numberedName,
+        },
+      }
+      return { item, request }
+    })
+    queuedItems.forEach(({ item, request }) => {
+      playlistDownloadIdsRef.current.add(item.id)
+      playlistQueueRef.current.push(request)
+    })
+    setDownloads((items) => [...queuedItems.map(({ item }) => item), ...items])
+    startNextPlaylistDownload()
+    toast.success(`Queued ${queuedItems.length} playlist item${queuedItems.length === 1 ? "" : "s"}.`)
   }
 
   async function handleStartDownload() {
@@ -223,8 +396,11 @@ function App() {
   }
 
   async function handleCancel(id: string) {
+    cancelledQueuedIdsRef.current.add(id)
+    playlistQueueRef.current = playlistQueueRef.current.filter((item) => item.id !== id)
     await cancelDownload(id).catch(() => undefined)
     setDownloads((items) => items.map((item) => (item.id === id ? { ...item, status: "cancelled", message: "Cancelled by user." } : item)))
+    if (!playlistRunningRef.current) startNextPlaylistDownload()
   }
 
   return (
@@ -244,6 +420,7 @@ function App() {
           <Tabs value={tab} onValueChange={setTab}>
             <TabsList className="grid h-auto w-full grid-cols-1 bg-transparent p-0">
               <TabsTrigger value="download" className="justify-start"><LinkIcon data-icon="inline-start" />Download</TabsTrigger>
+              <TabsTrigger value="playlist" className="justify-start"><ListMusicIcon data-icon="inline-start" />Playlist</TabsTrigger>
               <TabsTrigger value="history" className="justify-start"><HistoryIcon data-icon="inline-start" />History</TabsTrigger>
               <TabsTrigger value="settings" className="justify-start"><SettingsIcon data-icon="inline-start" />Settings</TabsTrigger>
               <TabsTrigger value="help" className="justify-start"><InfoIcon data-icon="inline-start" />Help</TabsTrigger>
@@ -260,6 +437,7 @@ function App() {
             <Tabs value={tab} onValueChange={setTab}>
               <TabsList>
                 <TabsTrigger value="download">Save</TabsTrigger>
+                <TabsTrigger value="playlist">Playlist</TabsTrigger>
                 <TabsTrigger value="history">History</TabsTrigger>
                 <TabsTrigger value="settings">Settings</TabsTrigger>
                 <TabsTrigger value="help">Help</TabsTrigger>
@@ -290,6 +468,31 @@ function App() {
                   onInspect={handleInspect}
                   onChooseFolder={handleChooseFolder}
                   onStartDownload={handleStartDownload}
+                  onCancel={handleCancel}
+                />
+              </TabsContent>
+              <TabsContent value="playlist">
+                <PlaylistScreen
+                  url={playlistUrl}
+                  setUrl={setPlaylistUrl}
+                  platform={detectPlatform(playlistUrl)}
+                  validationMessage={playlistValidation && !playlistValidation.valid ? playlistValidation.message : ""}
+                  checking={playlistChecking}
+                  error={playlistError}
+                  inspection={playlistInspection}
+                  selectedIds={selectedPlaylistIds}
+                  mode={playlistMode}
+                  setMode={setPlaylistMode}
+                  quality={playlistQuality}
+                  setQuality={setPlaylistQuality}
+                  outputDir={playlistOutputDir}
+                  setOutputDir={setPlaylistOutputDir}
+                  downloads={downloads}
+                  onInspect={handleInspectPlaylist}
+                  onChooseFolder={handleChoosePlaylistFolder}
+                  onToggleEntry={togglePlaylistEntry}
+                  onToggleAll={setAllPlaylistEntries}
+                  onStartDownload={handleStartPlaylistDownload}
                   onCancel={handleCancel}
                 />
               </TabsContent>
@@ -426,6 +629,182 @@ function DownloadScreen(props: {
   )
 }
 
+function PlaylistScreen(props: {
+  url: string
+  setUrl: (value: string) => void
+  platform: ReturnType<typeof detectPlatform>
+  validationMessage: string
+  checking: boolean
+  error: string
+  inspection: PlaylistInspection | null
+  selectedIds: Set<string>
+  mode: DownloadMode
+  setMode: (value: DownloadMode) => void
+  quality: "best" | "balanced"
+  setQuality: (value: "best" | "balanced") => void
+  outputDir: string
+  setOutputDir: (value: string) => void
+  downloads: DownloadItem[]
+  onInspect: () => void
+  onChooseFolder: () => void
+  onToggleEntry: (id: string, checked: boolean) => void
+  onToggleAll: (checked: boolean) => void
+  onStartDownload: () => void
+  onCancel: (id: string) => void
+}) {
+  const canDownload = Boolean(props.inspection?.downloadable && props.selectedIds.size > 0 && !props.checking)
+  const canUseVideo = props.inspection?.platform === "youTube"
+  const playlistHint = props.url.trim()
+    ? props.validationMessage || (!isLikelyPlaylistUrl(props.url) ? `Detected: ${platformLabel(props.platform)}. This may be a single item URL.` : `Detected: ${platformLabel(props.platform)}`)
+    : "Paste a YouTube playlist or SoundCloud set URL to begin."
+  const playlistDownloads = props.downloads.filter((item) => item.playlistTitle)
+  return (
+    <div className="flex flex-col gap-5">
+      <div>
+        <h2 className="text-2xl font-semibold tracking-normal">Download a playlist</h2>
+        <p className="text-sm text-muted-foreground">Paste a public YouTube playlist or SoundCloud set, choose items, then save them with per-item progress.</p>
+      </div>
+      <Alert>
+        <ShieldCheckIcon data-icon="inline-start" />
+        <AlertTitle>Legal-use notice</AlertTitle>
+        <AlertDescription>You are responsible for having the rights to download playlist items. Unmuze downloads selected entries one at a time and does not bypass protected access.</AlertDescription>
+      </Alert>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Playlist URL</CardTitle>
+            <CardDescription>Supported: public YouTube playlists and SoundCloud sets available to local `yt-dlp`.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FieldGroup>
+              <Field data-invalid={Boolean(props.validationMessage)}>
+                <FieldLabel htmlFor="playlist-url">URL</FieldLabel>
+                <div className="flex gap-2">
+                  <Input id="playlist-url" value={props.url} onChange={(event) => props.setUrl(event.target.value)} placeholder="https://www.youtube.com/playlist?list=..." aria-invalid={Boolean(props.validationMessage)} />
+                  <Button onClick={props.onInspect} disabled={props.checking || !props.url.trim()}>
+                    {props.checking ? <Spinner /> : <SearchIcon data-icon="inline-start" />}
+                    Check
+                  </Button>
+                </div>
+                <FieldDescription>{playlistHint}</FieldDescription>
+              </Field>
+              {props.error ? (
+                <Alert variant={props.inspection?.platform === "spotify" ? "default" : "destructive"}>
+                  <AlertCircleIcon data-icon="inline-start" />
+                  <AlertTitle>{props.inspection?.platform === "spotify" ? "Protected platform" : "Needs attention"}</AlertTitle>
+                  <AlertDescription>{props.error}</AlertDescription>
+                </Alert>
+              ) : null}
+              {props.checking ? <InspectionSkeleton /> : props.inspection ? <PlaylistSummary inspection={props.inspection} selectedCount={props.selectedIds.size} onToggleAll={props.onToggleAll} /> : null}
+            </FieldGroup>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Playlist options</CardTitle>
+            <CardDescription>Each selected item is saved as its own file.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FieldGroup>
+              <Field>
+                <FieldLabel>Format</FieldLabel>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant={props.mode === "audio" ? "default" : "outline"} onClick={() => props.setMode("audio")} disabled={!props.inspection?.downloadable}>
+                    <MusicIcon data-icon="inline-start" />Audio
+                  </Button>
+                  <Button variant={props.mode === "video" ? "default" : "outline"} onClick={() => props.setMode("video")} disabled={!props.inspection?.downloadable || !canUseVideo}>
+                    <VideoIcon data-icon="inline-start" />Video
+                  </Button>
+                </div>
+                <FieldDescription>{props.inspection ? (canUseVideo ? "YouTube playlists can be saved as audio or video." : "SoundCloud playlists are audio only.") : "Video becomes available after inspecting a YouTube playlist."}</FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel>Quality</FieldLabel>
+                <Select value={props.quality} onValueChange={(value) => props.setQuality(value as "best" | "balanced")} disabled={!props.inspection?.downloadable}>
+                  <SelectGroup>
+                    <SelectItem value="best">Best available</SelectItem>
+                    <SelectItem value="balanced">Balanced size</SelectItem>
+                  </SelectGroup>
+                </Select>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="playlist-output-folder">Output folder</FieldLabel>
+                <div className="flex gap-2">
+                  <Input id="playlist-output-folder" value={props.outputDir} onChange={(event) => props.setOutputDir(event.target.value)} placeholder="Choose a folder" />
+                  <Button variant="outline" size="icon" onClick={props.onChooseFolder} aria-label="Choose folder"><FolderIcon /></Button>
+                </div>
+              </Field>
+              <Button onClick={props.onStartDownload} disabled={!canDownload}>
+                <DownloadIcon data-icon="inline-start" />
+                Save selected items
+              </Button>
+            </FieldGroup>
+          </CardContent>
+        </Card>
+      </div>
+      {props.inspection?.entries.length ? (
+        <PlaylistEntryList entries={props.inspection.entries} selectedIds={props.selectedIds} onToggleEntry={props.onToggleEntry} />
+      ) : null}
+      <DownloadManager downloads={playlistDownloads} onCancel={props.onCancel} />
+    </div>
+  )
+}
+
+function PlaylistSummary({ inspection, selectedCount, onToggleAll }: { inspection: PlaylistInspection; selectedCount: number; onToggleAll: (checked: boolean) => void }) {
+  const totalDuration = inspection.entries.reduce((sum, entry) => sum + (entry.duration || 0), 0)
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-center justify-between gap-4 pt-5">
+        <div className="min-w-0">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <Badge variant={inspection.downloadable ? "default" : "secondary"}>{platformLabel(inspection.platform)}</Badge>
+            <Badge variant="outline">{inspection.entries.length} items</Badge>
+          </div>
+          <h3 className="truncate text-lg font-semibold tracking-normal">{inspection.title || "Playlist"}</h3>
+          <p className="text-sm text-muted-foreground">{inspection.creator || "Creator unavailable"} · {formatDuration(totalDuration)}</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => onToggleAll(true)} disabled={!inspection.downloadable}>Select all</Button>
+          <Button variant="outline" size="sm" onClick={() => onToggleAll(false)} disabled={selectedCount === 0}>Clear</Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function PlaylistEntryList({ entries, selectedIds, onToggleEntry }: { entries: PlaylistEntry[]; selectedIds: Set<string>; onToggleEntry: (id: string, checked: boolean) => void }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Playlist items</CardTitle>
+        <CardDescription>{selectedIds.size} of {entries.length} selected.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="max-h-[460px] overflow-auto rounded-md border">
+          {entries.map((entry) => (
+            <label key={`${entry.id}-${entry.index}`} className="flex cursor-pointer items-center gap-3 border-b p-3 last:border-b-0 hover:bg-muted/50">
+              <input
+                className="size-4 accent-primary"
+                type="checkbox"
+                checked={selectedIds.has(playlistEntryKey(entry))}
+                onChange={(event) => onToggleEntry(playlistEntryKey(entry), event.target.checked)}
+              />
+              {entry.thumbnail ? <img className="h-12 w-16 rounded object-cover" src={entry.thumbnail} alt="" /> : <div className="flex h-12 w-16 items-center justify-center rounded bg-muted"><MusicIcon className="size-4" /></div>}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">{entry.index.toString().padStart(2, "0")}</span>
+                  <span className="truncate font-medium">{entry.title}</span>
+                </div>
+                <p className="truncate text-sm text-muted-foreground">{entry.creator || "Creator unavailable"} · {formatDuration(entry.duration)}</p>
+              </div>
+            </label>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 function InspectionSkeleton() {
   return (
     <Card>
@@ -477,9 +856,10 @@ function DownloadManager({ downloads, onCancel }: { downloads: DownloadItem[]; o
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <Badge variant={item.status === "completed" ? "default" : item.status === "failed" ? "destructive" : "secondary"}>{item.status}</Badge>
+                      {item.playlistIndex && item.playlistTotal ? <Badge variant="outline">{item.playlistIndex} of {item.playlistTotal}</Badge> : null}
                       <span className="truncate font-medium">{item.title}</span>
                     </div>
-                    <p className="mt-1 text-sm text-muted-foreground">{item.message}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{item.playlistTitle ? `${item.playlistTitle} · ` : ""}{item.message}</p>
                   </div>
                   <div className="flex gap-2">
                     {["downloading", "converting"].includes(item.status) ? (

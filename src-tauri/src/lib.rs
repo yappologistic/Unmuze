@@ -76,6 +76,29 @@ struct Inspection {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct PlaylistEntry {
+    id: String,
+    url: String,
+    title: String,
+    creator: Option<String>,
+    duration: Option<u64>,
+    thumbnail: Option<String>,
+    index: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlaylistInspection {
+    platform: Platform,
+    downloadable: bool,
+    title: Option<String>,
+    creator: Option<String>,
+    entries: Vec<PlaylistEntry>,
+    limitation: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CommandError {
     message: String,
     suggestion: String,
@@ -84,10 +107,12 @@ struct CommandError {
 type AppResult<T> = Result<T, CommandError>;
 
 fn app_dir(app: &AppHandle) -> AppResult<PathBuf> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|_| user_error("Local storage is unavailable.", "Check app permissions and try again."))?;
+    let dir = app.path().app_data_dir().map_err(|_| {
+        user_error(
+            "Local storage is unavailable.",
+            "Check app permissions and try again.",
+        )
+    })?;
     fs::create_dir_all(&dir).map_err(|_| {
         user_error(
             "The app could not create its local settings folder.",
@@ -157,11 +182,13 @@ fn sanitize_filename(input: &str) -> String {
         cleaned = "download".to_string();
     }
     let reserved = [
-        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
-        "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8",
-        "LPT9",
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     ];
-    if reserved.iter().any(|name| cleaned.eq_ignore_ascii_case(name)) {
+    if reserved
+        .iter()
+        .any(|name| cleaned.eq_ignore_ascii_case(name))
+    {
         cleaned.push_str("_file");
     }
     cleaned.chars().take(120).collect()
@@ -305,9 +332,40 @@ fn inspect_media(request: InspectRequest) -> AppResult<Inspection> {
     }
 }
 
-fn inspect_with_ytdlp(url: &str, platform: Platform) -> AppResult<Inspection> {
+#[tauri::command]
+fn inspect_playlist(request: InspectRequest) -> AppResult<PlaylistInspection> {
+    validate_public_url(&request.url)?;
+    let platform = detect_platform(&request.url);
+    match platform {
+        Platform::Spotify => Ok(PlaylistInspection {
+            platform,
+            downloadable: false,
+            title: None,
+            creator: None,
+            entries: vec![],
+            limitation: Some("Spotify playlists cannot be downloaded because Spotify does not expose downloadable audio files without protected access.".to_string()),
+        }),
+        Platform::Unsupported => Ok(PlaylistInspection {
+            platform,
+            downloadable: false,
+            title: None,
+            creator: None,
+            entries: vec![],
+            limitation: Some("Playlist mode currently supports permitted public YouTube and SoundCloud playlists only.".to_string()),
+        }),
+        Platform::YouTube | Platform::SoundCloud => inspect_playlist_with_ytdlp(&request.url, platform),
+    }
+}
+
+fn inspect_playlist_with_ytdlp(url: &str, platform: Platform) -> AppResult<PlaylistInspection> {
     let output = Command::new("yt-dlp")
-        .args(["--dump-single-json", "--skip-download", "--no-warnings", "--no-playlist", url])
+        .args([
+            "--dump-single-json",
+            "--flat-playlist",
+            "--skip-download",
+            "--no-warnings",
+            url,
+        ])
         .stdin(Stdio::null())
         .stderr(Stdio::piped())
         .output()
@@ -319,7 +377,156 @@ fn inspect_with_ytdlp(url: &str, platform: Platform) -> AppResult<Inspection> {
         })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
-        let message = if stderr.contains("login") || stderr.contains("private") || stderr.contains("forbidden") {
+        let message = if stderr.contains("login")
+            || stderr.contains("private")
+            || stderr.contains("forbidden")
+        {
+            "This playlist requires login or protected access, so it cannot be downloaded by this app."
+        } else {
+            "The playlist could not be inspected."
+        };
+        return Err(user_error(
+            message,
+            "Check that the playlist is public, permitted for download, and technically available.",
+        ));
+    }
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|_| {
+        user_error(
+            "The playlist metadata could not be understood.",
+            "Update yt-dlp and try again.",
+        )
+    })?;
+    let entries = json
+        .get("entries")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .enumerate()
+                .filter_map(|(position, entry)| {
+                    playlist_entry_from_json(entry, &platform, position + 1)
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if entries.is_empty() {
+        return Ok(PlaylistInspection {
+            platform,
+            downloadable: false,
+            title: json
+                .get("title")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            creator: json
+                .get("uploader")
+                .or_else(|| json.get("channel"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            entries,
+            limitation: Some(
+                "No downloadable public items were found in this playlist.".to_string(),
+            ),
+        });
+    }
+    Ok(PlaylistInspection {
+        platform,
+        downloadable: true,
+        title: json
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        creator: json
+            .get("uploader")
+            .or_else(|| json.get("channel"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        entries,
+        limitation: None,
+    })
+}
+
+fn playlist_entry_from_json(
+    entry: &serde_json::Value,
+    platform: &Platform,
+    index: usize,
+) -> Option<PlaylistEntry> {
+    let id = entry
+        .get("id")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| index.to_string());
+    let url = entry
+        .get("webpage_url")
+        .or_else(|| entry.get("url"))
+        .or_else(|| entry.get("permalink_url"))
+        .and_then(|value| value.as_str())
+        .and_then(|value| {
+            if value.starts_with("http://") || value.starts_with("https://") {
+                Some(value.to_string())
+            } else if matches!(platform, Platform::YouTube) {
+                Some(format!("https://www.youtube.com/watch?v={value}"))
+            } else {
+                None
+            }
+        })?;
+    let title = entry
+        .get("title")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("Playlist item {index}"));
+    let thumbnail = entry
+        .get("thumbnail")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .or_else(|| {
+            entry
+                .get("thumbnails")
+                .and_then(|value| value.as_array())
+                .and_then(|items| items.last())
+                .and_then(|item| item.get("url"))
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+        });
+    Some(PlaylistEntry {
+        id,
+        url,
+        title,
+        creator: entry
+            .get("uploader")
+            .or_else(|| entry.get("channel"))
+            .or_else(|| entry.get("artist"))
+            .and_then(|value| value.as_str())
+            .map(str::to_string),
+        duration: entry.get("duration").and_then(|value| value.as_u64()),
+        thumbnail,
+        index,
+    })
+}
+
+fn inspect_with_ytdlp(url: &str, platform: Platform) -> AppResult<Inspection> {
+    let output = Command::new("yt-dlp")
+        .args([
+            "--dump-single-json",
+            "--skip-download",
+            "--no-warnings",
+            "--no-playlist",
+            url,
+        ])
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|_| {
+            user_error(
+                "yt-dlp is missing or unavailable.",
+                "Install yt-dlp and make sure it is on your PATH, then try again.",
+            )
+        })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
+        let message = if stderr.contains("login")
+            || stderr.contains("private")
+            || stderr.contains("forbidden")
+        {
             "This URL requires login or protected access, so it cannot be downloaded by this app."
         } else {
             "The media could not be inspected."
@@ -335,14 +542,20 @@ fn inspect_with_ytdlp(url: &str, platform: Platform) -> AppResult<Inspection> {
             "Update yt-dlp and try again.",
         )
     })?;
-    let title = json.get("title").and_then(|v| v.as_str()).map(str::to_string);
+    let title = json
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     let creator = json
         .get("uploader")
         .or_else(|| json.get("artist"))
         .and_then(|v| v.as_str())
         .map(str::to_string);
     let duration = json.get("duration").and_then(|v| v.as_u64());
-    let thumbnail = json.get("thumbnail").and_then(|v| v.as_str()).map(str::to_string);
+    let thumbnail = json
+        .get("thumbnail")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     let suggested = title
         .as_ref()
         .map(|value| sanitize_filename(value))
@@ -381,7 +594,11 @@ fn start_download(
     }
     let mut output_path = safe_output_path(&request.output_dir, &request.file_name)?;
     if output_path.extension().is_none() {
-        output_path.set_extension(if request.mode == "audio" { "mp3" } else { "mp4" });
+        output_path.set_extension(if request.mode == "audio" {
+            "mp3"
+        } else {
+            "mp4"
+        });
     }
     let template = output_path.to_string_lossy().to_string();
     let mut args = vec![
@@ -406,7 +623,12 @@ fn start_download(
         } else {
             "bv*[height<=720]+ba/b[height<=720]"
         };
-        args.extend(["-f".to_string(), selector.to_string(), "--merge-output-format".to_string(), "mp4".to_string()]);
+        args.extend([
+            "-f".to_string(),
+            selector.to_string(),
+            "--merge-output-format".to_string(),
+            "mp4".to_string(),
+        ]);
     }
     args.push(request.url.clone());
     let mut child = Command::new("yt-dlp")
@@ -428,7 +650,12 @@ fn start_download(
     registry
         .0
         .lock()
-        .map_err(|_| user_error("Download manager is unavailable.", "Restart the app and try again."))?
+        .map_err(|_| {
+            user_error(
+                "Download manager is unavailable.",
+                "Restart the app and try again.",
+            )
+        })?
         .insert(request.id.clone(), Arc::clone(&child_ref));
 
     let id = request.id.clone();
@@ -458,7 +685,10 @@ fn start_download(
                 );
             }
         }
-        let status = child_ref.lock().ok().and_then(|mut child| child.wait().ok());
+        let status = child_ref
+            .lock()
+            .ok()
+            .and_then(|mut child| child.wait().ok());
         let completed = status.map(|s| s.success()).unwrap_or(false);
         let _ = wait_app.emit(
             "download-finished",
@@ -480,7 +710,12 @@ fn cancel_download(id: String, registry: State<DownloadRegistry>) -> AppResult<(
     let child = registry
         .0
         .lock()
-        .map_err(|_| user_error("Download manager is unavailable.", "Restart the app and try again."))?
+        .map_err(|_| {
+            user_error(
+                "Download manager is unavailable.",
+                "Restart the app and try again.",
+            )
+        })?
         .remove(&id);
     if let Some(child) = child {
         let _ = child.lock().map(|mut process| process.kill());
@@ -511,6 +746,7 @@ pub fn run() {
             load_history,
             save_history,
             inspect_media,
+            inspect_playlist,
             start_download,
             cancel_download,
             reveal_path

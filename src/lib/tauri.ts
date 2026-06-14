@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import { open } from "@tauri-apps/plugin-dialog"
-import type { HistoryItem, Inspection, Settings } from "@/lib/media"
+import type { HistoryItem, Inspection, PlaylistInspection, Settings } from "@/lib/media"
 
 const isTauri = "__TAURI_INTERNALS__" in window
 
@@ -30,6 +30,10 @@ export async function saveHistory(history: HistoryItem[]) {
 
 export async function inspectMedia(url: string) {
   return callBackend<Inspection>("inspect_media", { request: { url } })
+}
+
+export async function inspectPlaylist(url: string) {
+  return callBackend<PlaylistInspection>("inspect_playlist", { request: { url } })
 }
 
 export async function startDownload(payload: Record<string, unknown>) {
