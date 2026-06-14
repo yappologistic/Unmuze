@@ -248,11 +248,6 @@ function App() {
               <TabsTrigger value="help" className="justify-start"><InfoIcon data-icon="inline-start" />Help</TabsTrigger>
             </TabsList>
           </Tabs>
-          <Alert>
-            <ShieldCheckIcon data-icon="inline-start" />
-            <AlertTitle>Rights required</AlertTitle>
-            <AlertDescription>Use this app only for content you are allowed to save.</AlertDescription>
-          </Alert>
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col">
