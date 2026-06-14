@@ -12,7 +12,7 @@ Unmuze is a local desktop app. Security issues of interest include:
 
 ## Reporting
 
-This repository is local-only right now. If it is later pushed to a hosted repository, use that repository's private vulnerability reporting channel.
+Report security issues through GitHub's private vulnerability reporting for this repository, or contact a maintainer privately before opening a public issue.
 
 ## Design Notes
 

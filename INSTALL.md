@@ -1,23 +1,25 @@
 # Install Unmuze
 
-Installers are produced locally with Tauri. Download the installer for your platform when a release is provided, or build one using [BUILD.md](BUILD.md).
+Download the installer for your platform from the GitHub releases page, or build one locally using [BUILD.md](BUILD.md).
 
 ## Windows
 
-1. Run the `.msi` or `.exe` installer.
-2. If Windows SmartScreen appears, choose the option to run the app only if you trust the build source.
-3. Install `yt-dlp` and FFmpeg, then make sure both are available on your `PATH`.
+1. Download the `.exe` setup file or `.msi` installer from the latest release.
+2. Run the installer.
+3. If Windows SmartScreen appears, choose the option to run the app only if you trust the build source.
+4. Install `yt-dlp` and FFmpeg, then make sure both are available on your `PATH`.
 
 ## macOS
 
-1. Open the `.dmg`.
-2. Drag Unmuze into Applications.
-3. On first launch, macOS may ask you to confirm the app because it was built locally.
-4. Install `yt-dlp` and FFmpeg with Homebrew or another trusted package manager.
+1. Download the `.dmg` for your Mac architecture from the latest release.
+2. Open the `.dmg`.
+3. Drag Unmuze into Applications.
+4. On first launch, macOS may ask you to confirm the app because it is not notarized yet.
+5. Install `yt-dlp` and FFmpeg with Homebrew or another trusted package manager.
 
 ## Linux
 
-1. Use the `.AppImage`, `.deb`, or `.rpm` produced by the build.
+1. Download the `.AppImage`, `.deb`, or `.rpm` from the latest release.
 2. Make the AppImage executable if needed.
 3. Install `yt-dlp` and FFmpeg through your distribution package manager.
 

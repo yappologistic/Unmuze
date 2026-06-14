@@ -38,6 +38,10 @@ npm run desktop:build
 
 Tauri writes platform-specific installers under `src-tauri/target/release/bundle`.
 
+## Release Builds
+
+GitHub Actions builds release bundles for Windows, macOS, and Linux when a version tag is pushed or when the release workflow is run manually.
+
 ## Platform Notes
 
 - Windows builds create MSI/NSIS-style artifacts depending on installed tooling.
