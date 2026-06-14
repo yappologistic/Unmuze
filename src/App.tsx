@@ -407,7 +407,7 @@ function App() {
     <div className="min-h-screen bg-background text-foreground">
       <Toaster />
       <div className="mx-auto flex min-h-screen w-full max-w-7xl">
-        <aside className="hidden w-64 shrink-0 border-r bg-muted/30 p-5 md:flex md:flex-col md:gap-6">
+        <aside className="sticky top-0 hidden h-screen w-64 shrink-0 overflow-y-auto border-r bg-muted/30 p-5 md:flex md:flex-col md:gap-6">
           <div className="flex items-center gap-3">
             <div className="size-10 overflow-hidden rounded-lg bg-primary">
               <img className="size-full object-cover" src={unmuzeIcon} alt="" />
