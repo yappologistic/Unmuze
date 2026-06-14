@@ -745,8 +745,40 @@ function PlaylistScreen(props: {
       {props.inspection?.entries.length ? (
         <PlaylistEntryList entries={props.inspection.entries} selectedIds={props.selectedIds} onToggleEntry={props.onToggleEntry} />
       ) : null}
+      {playlistDownloads.length ? <PlaylistProgressSummary downloads={playlistDownloads} /> : null}
       <DownloadManager downloads={playlistDownloads} onCancel={props.onCancel} />
     </div>
+  )
+}
+
+function PlaylistProgressSummary({ downloads }: { downloads: DownloadItem[] }) {
+  const total = downloads.length
+  const completed = downloads.filter((item) => item.status === "completed").length
+  const failed = downloads.filter((item) => item.status === "failed").length
+  const cancelled = downloads.filter((item) => item.status === "cancelled").length
+  const active = downloads.filter((item) => ["waiting", "downloading", "converting"].includes(item.status)).length
+  const progress = total ? Math.round((completed / total) * 100) : 0
+  const current = downloads.find((item) => ["downloading", "converting"].includes(item.status))
+  const complete = total > 0 && completed + failed + cancelled === total
+  return (
+    <Card>
+      <CardHeader className="flex-row items-start justify-between gap-4">
+        <div>
+          <CardTitle>Playlist progress</CardTitle>
+          <CardDescription>
+            {completed} of {total} songs downloaded{failed ? ` · ${failed} failed` : ""}{cancelled ? ` · ${cancelled} cancelled` : ""}
+          </CardDescription>
+        </div>
+        <Badge variant={complete ? "default" : "secondary"}>{complete ? "Finished" : `${active} active`}</Badge>
+      </CardHeader>
+      <CardContent>
+        <Progress value={progress} />
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+          <span>{current ? `Now downloading: ${current.title}` : complete ? "Playlist queue finished." : "Preparing the next song."}</span>
+          <span>{progress}%</span>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
