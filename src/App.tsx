@@ -186,8 +186,7 @@ function App() {
   async function handleStartDownload() {
     if (!inspection?.downloadable) return
     if (!settings.legalAcknowledged) {
-      toast.error("Confirm that you have the rights to download this content in Settings.")
-      setTab("settings")
+      toast.error("Confirm that you have permission to save this content.")
       return
     }
     if (!outputDir) {
@@ -293,8 +292,10 @@ function App() {
                   fileName={fileName}
                   setFileName={setFileName}
                   downloads={downloads}
+                  legalAcknowledged={settings.legalAcknowledged}
                   onInspect={handleInspect}
                   onChooseFolder={handleChooseFolder}
+                  onLegalAcknowledgedChange={(checked) => handleSaveSettings({ ...settings, legalAcknowledged: checked })}
                   onStartDownload={handleStartDownload}
                   onCancel={handleCancel}
                 />
@@ -333,8 +334,10 @@ function DownloadScreen(props: {
   fileName: string
   setFileName: (value: string) => void
   downloads: DownloadItem[]
+  legalAcknowledged: boolean
   onInspect: () => void
   onChooseFolder: () => void
+  onLegalAcknowledgedChange: (checked: boolean) => void
   onStartDownload: () => void
   onCancel: (id: string) => void
 }) {
@@ -419,7 +422,14 @@ function DownloadScreen(props: {
                 <Input id="file-name" value={props.fileName} onChange={(event) => props.setFileName(sanitizeFilename(event.target.value))} placeholder="download" disabled={!canDownload} />
                 <FieldDescription>Estimated type: {props.mode === "audio" ? "MP3 audio" : "MP4 video"}</FieldDescription>
               </Field>
-              <Button onClick={props.onStartDownload} disabled={!canDownload}>
+              <div className="flex items-center justify-between gap-3 rounded-md border p-4">
+                <div>
+                  <FieldLabel>I have permission to save this</FieldLabel>
+                  <FieldDescription>This is required for permitted downloads and is saved locally.</FieldDescription>
+                </div>
+                <Switch checked={props.legalAcknowledged} onCheckedChange={props.onLegalAcknowledgedChange} />
+              </div>
+              <Button onClick={props.onStartDownload} disabled={!canDownload || !props.legalAcknowledged}>
                 <DownloadIcon data-icon="inline-start" />
                 Save locally
               </Button>
