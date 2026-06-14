@@ -105,12 +105,25 @@ fn user_error(message: &str, suggestion: &str) -> CommandError {
 }
 
 fn detect_platform(url: &str) -> Platform {
-    let lower = url.to_ascii_lowercase();
-    if lower.contains("youtube.com/") || lower.contains("youtu.be/") {
+    let lower = url.trim().to_ascii_lowercase();
+    let host = lower
+        .split("://")
+        .nth(1)
+        .and_then(|rest| rest.split('/').next())
+        .unwrap_or("")
+        .strip_prefix("www.")
+        .unwrap_or_else(|| {
+            lower
+                .split("://")
+                .nth(1)
+                .and_then(|rest| rest.split('/').next())
+                .unwrap_or("")
+        });
+    if host == "youtube.com" || host.ends_with(".youtube.com") || host == "youtu.be" {
         Platform::YouTube
-    } else if lower.contains("soundcloud.com/") {
+    } else if host == "soundcloud.com" || host.ends_with(".soundcloud.com") {
         Platform::SoundCloud
-    } else if lower.contains("spotify.com/") || lower.contains("open.spotify.com/") {
+    } else if host == "spotify.com" || host.ends_with(".spotify.com") {
         Platform::Spotify
     } else {
         Platform::Unsupported
@@ -334,6 +347,11 @@ fn inspect_with_ytdlp(url: &str, platform: Platform) -> AppResult<Inspection> {
         .as_ref()
         .map(|value| sanitize_filename(value))
         .or_else(|| Some("download".to_string()));
+    let formats = if matches!(platform, Platform::SoundCloud) {
+        vec!["audio".to_string()]
+    } else {
+        vec!["audio".to_string(), "video".to_string()]
+    };
     Ok(Inspection {
         platform,
         downloadable: true,
@@ -341,7 +359,7 @@ fn inspect_with_ytdlp(url: &str, platform: Platform) -> AppResult<Inspection> {
         creator,
         duration,
         thumbnail,
-        formats: vec!["audio".to_string(), "video".to_string()],
+        formats,
         limitation: None,
         suggested_file_name: suggested,
     })
@@ -374,6 +392,8 @@ fn start_download(
     ];
     if request.mode == "audio" {
         args.extend([
+            "-f".to_string(),
+            "bestaudio/best".to_string(),
             "-x".to_string(),
             "--audio-format".to_string(),
             "mp3".to_string(),
@@ -507,4 +527,25 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{detect_platform, Platform};
+
+    #[test]
+    fn detects_soundcloud_hosts_for_ytdlp_path() {
+        assert_eq!(
+            detect_platform("https://soundcloud.com/artist/track"),
+            Platform::SoundCloud
+        );
+        assert_eq!(
+            detect_platform("https://m.soundcloud.com/artist/track"),
+            Platform::SoundCloud
+        );
+        assert_eq!(
+            detect_platform("https://on.soundcloud.com/abc123"),
+            Platform::SoundCloud
+        );
+    }
 }

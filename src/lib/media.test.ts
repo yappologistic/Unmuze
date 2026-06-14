@@ -6,12 +6,15 @@ describe("media URL handling", () => {
     expect(detectPlatform("https://www.youtube.com/watch?v=abc")).toBe("youTube")
     expect(detectPlatform("https://youtu.be/abc")).toBe("youTube")
     expect(detectPlatform("https://soundcloud.com/artist/track")).toBe("soundCloud")
+    expect(detectPlatform("https://m.soundcloud.com/artist/track")).toBe("soundCloud")
+    expect(detectPlatform("https://on.soundcloud.com/abc123")).toBe("soundCloud")
     expect(detectPlatform("https://open.spotify.com/track/abc")).toBe("spotify")
     expect(detectPlatform("https://example.com/file.mp4")).toBe("unsupported")
   })
 
   it("validates supported public URL shapes", () => {
     expect(validateMediaUrl("https://youtu.be/abc").valid).toBe(true)
+    expect(validateMediaUrl("https://on.soundcloud.com/abc123").valid).toBe(true)
     expect(validateMediaUrl("ftp://youtu.be/abc").valid).toBe(false)
     expect(validateMediaUrl("not a url").valid).toBe(false)
     expect(validateMediaUrl("https://example.com/video").valid).toBe(false)

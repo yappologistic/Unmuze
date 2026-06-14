@@ -63,11 +63,19 @@ export const defaultSettings: Settings = {
 }
 
 export function detectPlatform(rawUrl: string): Platform {
-  const value = rawUrl.toLowerCase()
-  if (value.includes("youtube.com/") || value.includes("youtu.be/")) return "youTube"
-  if (value.includes("soundcloud.com/")) return "soundCloud"
-  if (value.includes("spotify.com/") || value.includes("open.spotify.com/")) return "spotify"
-  return "unsupported"
+  try {
+    const hostname = new URL(rawUrl.trim()).hostname.toLowerCase().replace(/^www\./, "")
+    if (hostname === "youtube.com" || hostname.endsWith(".youtube.com") || hostname === "youtu.be") return "youTube"
+    if (hostname === "soundcloud.com" || hostname.endsWith(".soundcloud.com")) return "soundCloud"
+    if (hostname === "spotify.com" || hostname.endsWith(".spotify.com")) return "spotify"
+    return "unsupported"
+  } catch {
+    const value = rawUrl.toLowerCase()
+    if (value.includes("youtube.com/") || value.includes("youtu.be/")) return "youTube"
+    if (value.includes("soundcloud.com/")) return "soundCloud"
+    if (value.includes("spotify.com/")) return "spotify"
+    return "unsupported"
+  }
 }
 
 export function validateMediaUrl(rawUrl: string): { valid: true; url: URL } | { valid: false; message: string } {
