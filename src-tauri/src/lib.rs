@@ -13,6 +13,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 const YT_DLP_VERSION: &str = "2026.06.09";
 const FFMPEG_VERSION: &str = "n8.0.1-1";
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Default)]
 struct DownloadRegistry(Mutex<HashMap<String, Arc<Mutex<Child>>>>);
@@ -174,6 +176,16 @@ fn executable_suffix() -> &'static str {
     }
 }
 
+fn tool_command(command: &str) -> Command {
+    let mut command = Command::new(command);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 fn tool_asset(tool: &str) -> AppResult<ToolAsset> {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
@@ -297,7 +309,7 @@ fn ffmpeg_location_arg(app: &AppHandle) -> Option<String> {
 }
 
 fn command_version(command: &str) -> Option<String> {
-    Command::new(command)
+    tool_command(command)
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -686,7 +698,7 @@ fn inspect_playlist_with_ytdlp(
     platform: Platform,
 ) -> AppResult<PlaylistInspection> {
     let ytdlp = active_tool_path(app, "yt-dlp");
-    let mut command = Command::new(ytdlp);
+    let mut command = tool_command(&ytdlp);
     command.args([
         "--dump-single-json",
         "--flat-playlist",
@@ -837,7 +849,7 @@ fn playlist_entry_from_json(
 
 fn inspect_with_ytdlp(app: &AppHandle, url: &str, platform: Platform) -> AppResult<Inspection> {
     let ytdlp = active_tool_path(app, "yt-dlp");
-    let mut command = Command::new(ytdlp);
+    let mut command = tool_command(&ytdlp);
     command.args([
         "--dump-single-json",
         "--skip-download",
@@ -972,7 +984,7 @@ fn start_download(
     }
     args.push(request.url.clone());
     let ytdlp = active_tool_path(&app, "yt-dlp");
-    let mut child = Command::new(ytdlp)
+    let mut child = tool_command(&ytdlp)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
