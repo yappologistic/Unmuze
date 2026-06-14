@@ -35,7 +35,6 @@ describe("settings defaults", () => {
     expect(defaultSettings.theme).toBe("system")
     expect(defaultSettings.defaultFormat).toBe("audio")
     expect(defaultSettings.keepHistory).toBe(true)
-    expect(defaultSettings.legalAcknowledged).toBe(false)
   })
 })
 

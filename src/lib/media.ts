@@ -28,7 +28,6 @@ export type Settings = {
   defaultFormat: DownloadMode
   defaultQuality: "best" | "balanced"
   keepHistory: boolean
-  legalAcknowledged: boolean
 }
 
 export type HistoryItem = {
@@ -61,7 +60,6 @@ export const defaultSettings: Settings = {
   defaultFormat: "audio",
   defaultQuality: "best",
   keepHistory: true,
-  legalAcknowledged: false,
 }
 
 export function detectPlatform(rawUrl: string): Platform {

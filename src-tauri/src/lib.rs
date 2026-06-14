@@ -47,7 +47,6 @@ struct Settings {
     default_format: String,
     default_quality: String,
     keep_history: bool,
-    legal_acknowledged: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -193,7 +192,6 @@ fn default_settings() -> Settings {
         default_format: "audio".to_string(),
         default_quality: "best".to_string(),
         keep_history: true,
-        legal_acknowledged: false,
     }
 }
 

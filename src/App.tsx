@@ -185,10 +185,6 @@ function App() {
 
   async function handleStartDownload() {
     if (!inspection?.downloadable) return
-    if (!settings.legalAcknowledged) {
-      toast.error("Confirm that you have permission to save this content.")
-      return
-    }
     if (!outputDir) {
       toast.error("Choose an output folder first.")
       return
@@ -292,10 +288,8 @@ function App() {
                   fileName={fileName}
                   setFileName={setFileName}
                   downloads={downloads}
-                  legalAcknowledged={settings.legalAcknowledged}
                   onInspect={handleInspect}
                   onChooseFolder={handleChooseFolder}
-                  onLegalAcknowledgedChange={(checked) => handleSaveSettings({ ...settings, legalAcknowledged: checked })}
                   onStartDownload={handleStartDownload}
                   onCancel={handleCancel}
                 />
@@ -334,10 +328,8 @@ function DownloadScreen(props: {
   fileName: string
   setFileName: (value: string) => void
   downloads: DownloadItem[]
-  legalAcknowledged: boolean
   onInspect: () => void
   onChooseFolder: () => void
-  onLegalAcknowledgedChange: (checked: boolean) => void
   onStartDownload: () => void
   onCancel: (id: string) => void
 }) {
@@ -422,14 +414,7 @@ function DownloadScreen(props: {
                 <Input id="file-name" value={props.fileName} onChange={(event) => props.setFileName(sanitizeFilename(event.target.value))} placeholder="download" disabled={!canDownload} />
                 <FieldDescription>Estimated type: {props.mode === "audio" ? "MP3 audio" : "MP4 video"}</FieldDescription>
               </Field>
-              <div className="flex items-center justify-between gap-3 rounded-md border p-4">
-                <div>
-                  <FieldLabel>I have permission to save this</FieldLabel>
-                  <FieldDescription>This is required for permitted downloads and is saved locally.</FieldDescription>
-                </div>
-                <Switch checked={props.legalAcknowledged} onCheckedChange={props.onLegalAcknowledgedChange} />
-              </div>
-              <Button onClick={props.onStartDownload} disabled={!canDownload || !props.legalAcknowledged}>
+              <Button onClick={props.onStartDownload} disabled={!canDownload}>
                 <DownloadIcon data-icon="inline-start" />
                 Save locally
               </Button>
@@ -603,22 +588,15 @@ function SettingsScreen({ settings, onSave }: { settings: Settings; onSave: (set
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>Legal acknowledgement</CardTitle>
-          <CardDescription>Required before saving files.</CardDescription>
+          <CardTitle>Download boundaries</CardTitle>
+          <CardDescription>Protected access stays unavailable.</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+        <CardContent>
           <Alert>
             <ShieldCheckIcon data-icon="inline-start" />
             <AlertTitle>User responsibility</AlertTitle>
             <AlertDescription>Only download content when permitted by the source, your rights, and the platform terms. The app refuses protected platforms and access-controlled URLs.</AlertDescription>
           </Alert>
-          <div className="flex items-center justify-between gap-3 rounded-md border p-4">
-            <div>
-              <FieldLabel>I understand</FieldLabel>
-              <FieldDescription>I have the rights or permission for downloads I start.</FieldDescription>
-            </div>
-            <Switch checked={settings.legalAcknowledged} onCheckedChange={(checked) => onSave({ ...settings, legalAcknowledged: checked })} />
-          </div>
         </CardContent>
       </Card>
     </div>
