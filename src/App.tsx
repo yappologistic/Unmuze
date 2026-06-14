@@ -1027,34 +1027,34 @@ function DownloadAdvancedOptions(props: {
 }) {
   const subtitlesActive = props.saveSubtitles && props.canSaveSubtitles
   return (
-    <div className="flex flex-col gap-4 rounded-md border p-4">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex min-w-0 gap-3">
+    <div className="flex flex-col gap-4 rounded-md border bg-card/40 p-4">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+        <div className="flex min-w-0 items-start gap-3">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
             <ScissorsIcon className="size-5" />
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 space-y-1">
             <FieldLabel>Split chapters</FieldLabel>
             <FieldDescription>Creates separate files for chapter markers when the source provides them.</FieldDescription>
           </div>
         </div>
-        <Switch className="mt-1 shrink-0" checked={props.splitChapters} onCheckedChange={props.setSplitChapters} disabled={!props.canDownload} />
+        <Switch className="mt-1" checked={props.splitChapters} onCheckedChange={props.setSplitChapters} disabled={!props.canDownload} />
       </div>
       <Separator />
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex min-w-0 gap-3">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
+        <div className="flex min-w-0 items-start gap-3">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
             <CaptionsIcon className="size-5" />
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 space-y-1">
             <FieldLabel>Save subtitles</FieldLabel>
             <FieldDescription>Saves manual subtitles or auto captions as SRT sidecar files for video downloads.</FieldDescription>
           </div>
         </div>
-        <Switch className="mt-1 shrink-0" checked={subtitlesActive} onCheckedChange={props.setSaveSubtitles} disabled={!props.canSaveSubtitles} />
+        <Switch className="mt-1" checked={subtitlesActive} onCheckedChange={props.setSaveSubtitles} disabled={!props.canSaveSubtitles} />
       </div>
       {subtitlesActive ? (
-        <Field className="pl-12">
+        <Field className="ml-12 rounded-md border bg-background/60 p-3">
           <FieldLabel>Subtitle language</FieldLabel>
           <Select value={props.subtitleLanguage} onValueChange={props.setSubtitleLanguage}>
             <SelectGroup>
