@@ -1025,34 +1025,47 @@ function DownloadAdvancedOptions(props: {
   subtitleLanguage: string
   setSubtitleLanguage: (value: string) => void
 }) {
+  const subtitlesActive = props.saveSubtitles && props.canSaveSubtitles
   return (
-    <div className="flex flex-col gap-3 rounded-md border p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <FieldLabel><ScissorsIcon data-icon="inline-start" />Split chapters</FieldLabel>
-          <FieldDescription>Creates separate files for chapter markers when the source provides them.</FieldDescription>
+    <div className="flex flex-col gap-4 rounded-md border p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 gap-3">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+            <ScissorsIcon className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <FieldLabel>Split chapters</FieldLabel>
+            <FieldDescription>Creates separate files for chapter markers when the source provides them.</FieldDescription>
+          </div>
         </div>
-        <Switch checked={props.splitChapters} onCheckedChange={props.setSplitChapters} disabled={!props.canDownload} />
+        <Switch className="mt-1 shrink-0" checked={props.splitChapters} onCheckedChange={props.setSplitChapters} disabled={!props.canDownload} />
       </div>
       <Separator />
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <FieldLabel><CaptionsIcon data-icon="inline-start" />Save subtitles</FieldLabel>
-          <FieldDescription>Saves manual subtitles or auto captions as SRT sidecar files for video downloads.</FieldDescription>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 gap-3">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+            <CaptionsIcon className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <FieldLabel>Save subtitles</FieldLabel>
+            <FieldDescription>Saves manual subtitles or auto captions as SRT sidecar files for video downloads.</FieldDescription>
+          </div>
         </div>
-        <Switch checked={props.saveSubtitles && props.canSaveSubtitles} onCheckedChange={props.setSaveSubtitles} disabled={!props.canSaveSubtitles} />
+        <Switch className="mt-1 shrink-0" checked={subtitlesActive} onCheckedChange={props.setSaveSubtitles} disabled={!props.canSaveSubtitles} />
       </div>
-      <Field>
-        <FieldLabel>Subtitle language</FieldLabel>
-        <Select value={props.subtitleLanguage} onValueChange={props.setSubtitleLanguage} disabled={!props.canSaveSubtitles || !props.saveSubtitles}>
-          <SelectGroup>
-            {subtitleLanguageOptions.map((option) => (
-              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-            ))}
-          </SelectGroup>
-        </Select>
-        <FieldDescription>Only applies when subtitles are enabled.</FieldDescription>
-      </Field>
+      {subtitlesActive ? (
+        <Field className="pl-12">
+          <FieldLabel>Subtitle language</FieldLabel>
+          <Select value={props.subtitleLanguage} onValueChange={props.setSubtitleLanguage}>
+            <SelectGroup>
+              {subtitleLanguageOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+              ))}
+            </SelectGroup>
+          </Select>
+          <FieldDescription>Saved alongside the video as SRT files.</FieldDescription>
+        </Field>
+      ) : null}
     </div>
   )
 }

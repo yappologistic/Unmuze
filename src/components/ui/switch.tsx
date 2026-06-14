@@ -7,7 +7,7 @@ function Switch({ checked, onCheckedChange, className, ...props }: Omit<React.Co
       type="button"
       role="switch"
       aria-checked={checked}
-      className={cn("inline-flex h-6 w-11 items-center rounded-full border bg-input transition-colors data-[state=checked]:bg-primary", className)}
+      className={cn("inline-flex h-6 w-11 shrink-0 items-center rounded-full border bg-input p-0.5 transition-colors data-[state=checked]:bg-primary disabled:cursor-not-allowed disabled:opacity-50", className)}
       data-state={checked ? "checked" : "unchecked"}
       onClick={() => onCheckedChange?.(!checked)}
       {...props}
