@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest"
-import { canTransitionDownload, defaultSettings, detectPlatform, isLikelyPlaylistUrl, sanitizeFilename, validateMediaUrl } from "@/lib/media"
+import {
+  audioPresetOptions,
+  canTransitionDownload,
+  defaultSettings,
+  detectPlatform,
+  estimatedFileType,
+  isPresetAllowedForMode,
+  isLikelyPlaylistUrl,
+  normalizePresetForMode,
+  presetDetails,
+  sanitizeFilename,
+  validateMediaUrl,
+  videoPresetOptions,
+} from "@/lib/media"
 
 describe("media URL handling", () => {
   it("detects supported platforms", () => {
@@ -45,6 +58,34 @@ describe("settings defaults", () => {
     expect(defaultSettings.theme).toBe("system")
     expect(defaultSettings.defaultFormat).toBe("audio")
     expect(defaultSettings.keepHistory).toBe(true)
+  })
+})
+
+describe("format presets", () => {
+  it("exposes audio and video preset choices", () => {
+    expect(audioPresetOptions.map((option) => option.value)).toEqual([
+      "best",
+      "balanced",
+      "audio-mp3",
+      "audio-m4a",
+      "audio-opus",
+      "audio-wav",
+    ])
+    expect(videoPresetOptions.map((option) => option.value)).toEqual([
+      "best",
+      "balanced",
+      "video-mp4-best",
+      "video-mp4-1080",
+      "video-mp4-720",
+    ])
+  })
+
+  it("normalizes presets when switching modes", () => {
+    expect(isPresetAllowedForMode("audio-wav", "audio")).toBe(true)
+    expect(isPresetAllowedForMode("audio-wav", "video")).toBe(false)
+    expect(normalizePresetForMode("audio-wav", "video")).toBe("best")
+    expect(presetDetails("video-mp4-1080", "video").extension).toBe("mp4")
+    expect(estimatedFileType("audio-opus", "audio")).toBe("OPUS audio")
   })
 })
 

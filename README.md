@@ -15,6 +15,8 @@ The app is local-first. It does not require an account, does not use a cloud bac
 - Shows available metadata when local tooling can inspect the URL.
 - Installs checksum-verified managed copies of `yt-dlp` and FFmpeg into the local app data folder.
 - Saves audio or video through managed or system media tooling when the content is legally permitted and technically available.
+- Provides simple **Best** and **Balanced** presets plus explicit MP3, M4A, Opus, WAV, MP4 best, MP4 1080p, and MP4 720p choices.
+- Embeds title, uploader/artist metadata, source URL, and thumbnail artwork when the selected output format supports it.
 - Shows progress, cancellation, completed downloads, and local history.
 - Supports light, dark, and system theme settings.
 - Checks for signed app updates from inside Settings.
@@ -47,6 +49,6 @@ You are responsible for having the rights to download any content you save. Use 
 3. In Settings, choose **Install managed tools** if the app reports missing media tools.
 4. Use **Check for updates** in Settings when you want to install the latest signed release without visiting GitHub.
 5. Paste a supported public URL in Download mode, or open Playlist mode for a YouTube playlist or SoundCloud set.
-6. Select audio or video, choose an output folder, and save locally.
+6. Select audio or video, choose a preset, choose an output folder, and save locally.
 
 See [INSTALL.md](INSTALL.md) and [BUILD.md](BUILD.md) for setup and packaging instructions.

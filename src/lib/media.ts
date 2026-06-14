@@ -1,5 +1,15 @@
 export type Platform = "youTube" | "soundCloud" | "spotify" | "unsupported"
 export type DownloadMode = "audio" | "video"
+export type DownloadPreset =
+  | "best"
+  | "balanced"
+  | "audio-mp3"
+  | "audio-m4a"
+  | "audio-opus"
+  | "audio-wav"
+  | "video-mp4-best"
+  | "video-mp4-1080"
+  | "video-mp4-720"
 export type DownloadStatus =
   | "waiting"
   | "checking"
@@ -45,7 +55,7 @@ export type Settings = {
   theme: "light" | "dark" | "system"
   defaultOutputFolder: string
   defaultFormat: DownloadMode
-  defaultQuality: "best" | "balanced"
+  defaultQuality: DownloadPreset
   keepHistory: boolean
 }
 
@@ -83,7 +93,7 @@ export type DownloadItem = {
   title: string
   platform: Platform
   mode: DownloadMode
-  quality: "best" | "balanced"
+  quality: DownloadPreset
   outputDir: string
   fileName: string
   status: DownloadStatus
@@ -101,6 +111,51 @@ export const defaultSettings: Settings = {
   defaultFormat: "audio",
   defaultQuality: "best",
   keepHistory: true,
+}
+
+export type PresetOption = {
+  value: DownloadPreset
+  label: string
+  description: string
+  extension: string
+}
+
+export const audioPresetOptions: PresetOption[] = [
+  { value: "best", label: "Best", description: "Highest-quality MP3 for broad compatibility", extension: "mp3" },
+  { value: "balanced", label: "Balanced", description: "Smaller M4A for everyday listening", extension: "m4a" },
+  { value: "audio-mp3", label: "MP3", description: "Compatible audio file", extension: "mp3" },
+  { value: "audio-m4a", label: "M4A", description: "Efficient AAC audio file", extension: "m4a" },
+  { value: "audio-opus", label: "Opus", description: "Efficient modern audio file", extension: "opus" },
+  { value: "audio-wav", label: "WAV", description: "Uncompressed audio file", extension: "wav" },
+]
+
+export const videoPresetOptions: PresetOption[] = [
+  { value: "best", label: "Best", description: "Best available MP4 video", extension: "mp4" },
+  { value: "balanced", label: "Balanced", description: "MP4 up to 720p", extension: "mp4" },
+  { value: "video-mp4-best", label: "MP4 best", description: "Best available MP4 video", extension: "mp4" },
+  { value: "video-mp4-1080", label: "MP4 1080p", description: "MP4 up to 1080p", extension: "mp4" },
+  { value: "video-mp4-720", label: "MP4 720p", description: "MP4 up to 720p", extension: "mp4" },
+]
+
+export function presetOptionsForMode(mode: DownloadMode) {
+  return mode === "audio" ? audioPresetOptions : videoPresetOptions
+}
+
+export function isPresetAllowedForMode(preset: string, mode: DownloadMode): preset is DownloadPreset {
+  return presetOptionsForMode(mode).some((option) => option.value === preset)
+}
+
+export function normalizePresetForMode(preset: string, mode: DownloadMode): DownloadPreset {
+  return isPresetAllowedForMode(preset, mode) ? preset : "best"
+}
+
+export function presetDetails(preset: DownloadPreset, mode: DownloadMode) {
+  return presetOptionsForMode(mode).find((option) => option.value === preset) || presetOptionsForMode(mode)[0]
+}
+
+export function estimatedFileType(preset: DownloadPreset, mode: DownloadMode) {
+  const details = presetDetails(preset, mode)
+  return `${details.extension.toUpperCase()} ${mode === "audio" ? "audio" : "video"}`
 }
 
 export function detectPlatform(rawUrl: string): Platform {

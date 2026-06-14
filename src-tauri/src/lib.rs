@@ -927,6 +927,66 @@ fn inspect_with_ytdlp(app: &AppHandle, url: &str, platform: Platform) -> AppResu
     })
 }
 
+fn audio_extension(preset: &str) -> &'static str {
+    match preset {
+        "balanced" | "audio-m4a" => "m4a",
+        "audio-opus" => "opus",
+        "audio-wav" => "wav",
+        _ => "mp3",
+    }
+}
+
+fn append_metadata_args(args: &mut Vec<String>) {
+    args.extend([
+        "--embed-metadata".to_string(),
+        "--embed-thumbnail".to_string(),
+        "--convert-thumbnails".to_string(),
+        "jpg".to_string(),
+        "--parse-metadata".to_string(),
+        "%(uploader|)s:%(meta_artist)s".to_string(),
+    ]);
+}
+
+fn append_audio_preset_args(args: &mut Vec<String>, preset: &str) {
+    let (format, quality) = match preset {
+        "balanced" => ("m4a", "5"),
+        "audio-m4a" => ("m4a", "0"),
+        "audio-opus" => ("opus", "0"),
+        "audio-wav" => ("wav", "0"),
+        _ => ("mp3", "0"),
+    };
+    args.extend([
+        "-f".to_string(),
+        "bestaudio/best".to_string(),
+        "-x".to_string(),
+        "--audio-format".to_string(),
+        format.to_string(),
+        "--audio-quality".to_string(),
+        quality.to_string(),
+    ]);
+}
+
+fn video_selector(preset: &str) -> &'static str {
+    match preset {
+        "balanced" | "video-mp4-720" => {
+            "bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]/bv*[height<=720]+ba/b[height<=720]"
+        }
+        "video-mp4-1080" => {
+            "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080]/bv*[height<=1080]+ba/b[height<=1080]"
+        }
+        _ => "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b",
+    }
+}
+
+fn append_video_preset_args(args: &mut Vec<String>, preset: &str) {
+    args.extend([
+        "-f".to_string(),
+        video_selector(preset).to_string(),
+        "--merge-output-format".to_string(),
+        "mp4".to_string(),
+    ]);
+}
+
 #[tauri::command]
 fn start_download(
     app: AppHandle,
@@ -941,14 +1001,19 @@ fn start_download(
             "Use a permitted public YouTube or SoundCloud URL.",
         ));
     }
-    let mut output_path = safe_output_path(&request.output_dir, &request.file_name)?;
-    if output_path.extension().is_none() {
-        output_path.set_extension(if request.mode == "audio" {
-            "mp3"
-        } else {
-            "mp4"
-        });
+    if matches!(platform, Platform::SoundCloud) && request.mode == "video" {
+        return Err(user_error(
+            "SoundCloud URLs can only be saved as audio.",
+            "Choose an audio preset and try again.",
+        ));
     }
+    let mut output_path = safe_output_path(&request.output_dir, &request.file_name)?;
+    let expected_extension = if request.mode == "audio" {
+        audio_extension(&request.quality)
+    } else {
+        "mp4"
+    };
+    output_path.set_extension(expected_extension);
     let template = output_path.to_string_lossy().to_string();
     let mut args = vec![
         "--newline".to_string(),
@@ -959,28 +1024,11 @@ fn start_download(
     if let Some(ffmpeg_location) = ffmpeg_location_arg(&app) {
         args.extend(["--ffmpeg-location".to_string(), ffmpeg_location]);
     }
+    append_metadata_args(&mut args);
     if request.mode == "audio" {
-        args.extend([
-            "-f".to_string(),
-            "bestaudio/best".to_string(),
-            "-x".to_string(),
-            "--audio-format".to_string(),
-            "mp3".to_string(),
-            "--audio-quality".to_string(),
-            "0".to_string(),
-        ]);
+        append_audio_preset_args(&mut args, &request.quality);
     } else {
-        let selector = if request.quality == "best" {
-            "bv*+ba/b"
-        } else {
-            "bv*[height<=720]+ba/b[height<=720]"
-        };
-        args.extend([
-            "-f".to_string(),
-            selector.to_string(),
-            "--merge-output-format".to_string(),
-            "mp4".to_string(),
-        ]);
+        append_video_preset_args(&mut args, &request.quality);
     }
     args.push(request.url.clone());
     let ytdlp = active_tool_path(&app, "yt-dlp");
@@ -1124,7 +1172,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{detect_platform, tool_asset, Platform, FFMPEG_VERSION, YT_DLP_VERSION};
+    use super::{
+        append_audio_preset_args, append_metadata_args, append_video_preset_args, audio_extension,
+        detect_platform, tool_asset, video_selector, Platform, FFMPEG_VERSION, YT_DLP_VERSION,
+    };
 
     #[test]
     fn detects_soundcloud_hosts_for_ytdlp_path() {
@@ -1152,5 +1203,46 @@ mod tests {
         assert_eq!(ffmpeg.sha256.len(), 64);
         assert!(ytdlp.url.starts_with("https://github.com/"));
         assert!(ffmpeg.url.starts_with("https://github.com/"));
+    }
+
+    #[test]
+    fn maps_audio_presets_to_expected_extensions_and_args() {
+        assert_eq!(audio_extension("best"), "mp3");
+        assert_eq!(audio_extension("balanced"), "m4a");
+        assert_eq!(audio_extension("audio-opus"), "opus");
+        assert_eq!(audio_extension("audio-wav"), "wav");
+
+        let mut args = vec![];
+        append_audio_preset_args(&mut args, "audio-opus");
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--audio-format" && pair[1] == "opus"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--audio-quality" && pair[1] == "0"));
+    }
+
+    #[test]
+    fn maps_video_presets_to_mp4_selectors() {
+        assert!(video_selector("video-mp4-best").contains("[ext=mp4]"));
+        assert!(video_selector("video-mp4-1080").contains("height<=1080"));
+        assert!(video_selector("balanced").contains("height<=720"));
+
+        let mut args = vec![];
+        append_video_preset_args(&mut args, "video-mp4-720");
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--merge-output-format" && pair[1] == "mp4"));
+    }
+
+    #[test]
+    fn includes_metadata_and_artwork_embedding_args() {
+        let mut args = vec![];
+        append_metadata_args(&mut args);
+        assert!(args.contains(&"--embed-metadata".to_string()));
+        assert!(args.contains(&"--embed-thumbnail".to_string()));
+        assert!(args.windows(2).any(
+            |pair| pair[0] == "--parse-metadata" && pair[1] == "%(uploader|)s:%(meta_artist)s"
+        ));
     }
 }

@@ -43,15 +43,20 @@ import {
   canTransitionDownload,
   defaultSettings,
   detectPlatform,
+  estimatedFileType,
   formatDuration,
+  normalizePresetForMode,
   type DownloadItem,
   type DownloadMode,
+  type DownloadPreset,
   type HistoryItem,
   type Inspection,
   isLikelyPlaylistUrl,
   platformLabel,
   type PlaylistEntry,
   type PlaylistInspection,
+  presetDetails,
+  presetOptionsForMode,
   sanitizeFilename,
   type Settings,
   type ToolStatus,
@@ -102,7 +107,7 @@ function App() {
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [downloads, setDownloads] = useState<DownloadItem[]>([])
   const [mode, setMode] = useState<DownloadMode>("audio")
-  const [quality, setQuality] = useState<"best" | "balanced">("best")
+  const [quality, setQuality] = useState<DownloadPreset>("best")
   const [outputDir, setOutputDir] = useState("")
   const [fileName, setFileName] = useState("")
   const [playlistUrl, setPlaylistUrl] = useState("")
@@ -110,7 +115,7 @@ function App() {
   const [playlistChecking, setPlaylistChecking] = useState(false)
   const [playlistError, setPlaylistError] = useState("")
   const [playlistMode, setPlaylistMode] = useState<DownloadMode>("audio")
-  const [playlistQuality, setPlaylistQuality] = useState<"best" | "balanced">("best")
+  const [playlistQuality, setPlaylistQuality] = useState<DownloadPreset>("best")
   const [playlistOutputDir, setPlaylistOutputDir] = useState("")
   const [selectedPlaylistIds, setSelectedPlaylistIds] = useState<Set<string>>(new Set())
   const playlistQueueRef = useRef<PendingDownload[]>([])
@@ -124,8 +129,8 @@ function App() {
         setSettings(loaded)
         setMode(loaded.defaultFormat)
         setPlaylistMode(loaded.defaultFormat)
-        setQuality(loaded.defaultQuality)
-        setPlaylistQuality(loaded.defaultQuality)
+        setQuality(normalizePresetForMode(loaded.defaultQuality, loaded.defaultFormat))
+        setPlaylistQuality(normalizePresetForMode(loaded.defaultQuality, loaded.defaultFormat))
         setOutputDir(loaded.defaultOutputFolder)
         setPlaylistOutputDir(loaded.defaultOutputFolder)
       })
@@ -247,7 +252,9 @@ function App() {
     try {
       const result = await inspectMedia(validation.url.toString())
       setInspection(result)
-      setMode(result.formats.includes(settings.defaultFormat) ? settings.defaultFormat : "audio")
+      const nextMode = result.formats.includes(settings.defaultFormat) ? settings.defaultFormat : "audio"
+      setMode(nextMode)
+      setQuality(normalizePresetForMode(settings.defaultQuality, nextMode))
       setFileName(sanitizeFilename(result.suggestedFileName || result.title || "download"))
       if (!result.downloadable && result.limitation) {
         setError(result.limitation)
@@ -364,7 +371,9 @@ function App() {
     try {
       const result = await inspectPlaylist(validation.url.toString())
       setPlaylistInspection(result)
-      setPlaylistMode(result.platform === "soundCloud" ? "audio" : settings.defaultFormat)
+      const nextMode = result.platform === "soundCloud" ? "audio" : settings.defaultFormat
+      setPlaylistMode(nextMode)
+      setPlaylistQuality(normalizePresetForMode(settings.defaultQuality, nextMode))
       if (result.downloadable) {
         setSelectedPlaylistIds(new Set(result.entries.map(playlistEntryKey)))
       }
@@ -636,8 +645,8 @@ function DownloadScreen(props: {
   toolStatus: ToolStatus | null
   mode: DownloadMode
   setMode: (value: DownloadMode) => void
-  quality: "best" | "balanced"
-  setQuality: (value: "best" | "balanced") => void
+  quality: DownloadPreset
+  setQuality: (value: DownloadPreset) => void
   outputDir: string
   setOutputDir: (value: string) => void
   fileName: string
@@ -650,6 +659,12 @@ function DownloadScreen(props: {
   onOpenSettings: () => void
 }) {
   const canDownload = Boolean(props.inspection?.downloadable && !props.checking)
+  const presetOptions = presetOptionsForMode(props.mode)
+  const selectedPreset = presetDetails(props.quality, props.mode)
+  const changeMode = (nextMode: DownloadMode) => {
+    props.setMode(nextMode)
+    props.setQuality(normalizePresetForMode(props.quality, nextMode))
+  }
   return (
     <div className="flex flex-col gap-5">
       <div>
@@ -702,22 +717,24 @@ function DownloadScreen(props: {
               <Field>
                 <FieldLabel>Format</FieldLabel>
                 <div className="grid grid-cols-2 gap-2">
-                  <Button variant={props.mode === "audio" ? "default" : "outline"} onClick={() => props.setMode("audio")} disabled={!canDownload}>
+                  <Button variant={props.mode === "audio" ? "default" : "outline"} onClick={() => changeMode("audio")} disabled={!canDownload}>
                     <MusicIcon data-icon="inline-start" />Audio
                   </Button>
-                  <Button variant={props.mode === "video" ? "default" : "outline"} onClick={() => props.setMode("video")} disabled={!canDownload || !props.inspection?.formats.includes("video")}>
+                  <Button variant={props.mode === "video" ? "default" : "outline"} onClick={() => changeMode("video")} disabled={!canDownload || !props.inspection?.formats.includes("video")}>
                     <VideoIcon data-icon="inline-start" />Video
                   </Button>
                 </div>
               </Field>
               <Field>
-                <FieldLabel>Quality</FieldLabel>
-                <Select value={props.quality} onValueChange={(value) => props.setQuality(value as "best" | "balanced")} disabled={!canDownload}>
+                <FieldLabel>Preset</FieldLabel>
+                <Select value={props.quality} onValueChange={(value) => props.setQuality(normalizePresetForMode(value, props.mode))} disabled={!canDownload}>
                   <SelectGroup>
-                    <SelectItem value="best">Best available</SelectItem>
-                    <SelectItem value="balanced">Balanced size</SelectItem>
+                    {presetOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
                   </SelectGroup>
                 </Select>
+                <FieldDescription>{selectedPreset.description}</FieldDescription>
               </Field>
               <Field>
                 <FieldLabel htmlFor="output-folder">Output folder</FieldLabel>
@@ -729,7 +746,7 @@ function DownloadScreen(props: {
               <Field>
                 <FieldLabel htmlFor="file-name">File name</FieldLabel>
                 <Input id="file-name" value={props.fileName} onChange={(event) => props.setFileName(sanitizeFilename(event.target.value))} placeholder="download" disabled={!canDownload} />
-                <FieldDescription>Estimated type: {props.mode === "audio" ? "MP3 audio" : "MP4 video"}</FieldDescription>
+                <FieldDescription>Estimated type: {estimatedFileType(props.quality, props.mode)}. Metadata and artwork are embedded when supported.</FieldDescription>
               </Field>
               <Button onClick={props.onStartDownload} disabled={!canDownload}>
                 <DownloadIcon data-icon="inline-start" />
@@ -756,8 +773,8 @@ function PlaylistScreen(props: {
   selectedIds: Set<string>
   mode: DownloadMode
   setMode: (value: DownloadMode) => void
-  quality: "best" | "balanced"
-  setQuality: (value: "best" | "balanced") => void
+  quality: DownloadPreset
+  setQuality: (value: DownloadPreset) => void
   outputDir: string
   setOutputDir: (value: string) => void
   downloads: DownloadItem[]
@@ -771,6 +788,12 @@ function PlaylistScreen(props: {
 }) {
   const canDownload = Boolean(props.inspection?.downloadable && props.selectedIds.size > 0 && !props.checking)
   const canUseVideo = props.inspection?.platform === "youTube"
+  const presetOptions = presetOptionsForMode(props.mode)
+  const selectedPreset = presetDetails(props.quality, props.mode)
+  const changeMode = (nextMode: DownloadMode) => {
+    props.setMode(nextMode)
+    props.setQuality(normalizePresetForMode(props.quality, nextMode))
+  }
   const playlistHint = props.url.trim()
     ? props.validationMessage || (!isLikelyPlaylistUrl(props.url) ? `Detected: ${platformLabel(props.platform)}. This may be a single item URL.` : `Detected: ${platformLabel(props.platform)}`)
     : "Paste a YouTube playlist or SoundCloud set URL to begin."
@@ -827,23 +850,25 @@ function PlaylistScreen(props: {
               <Field>
                 <FieldLabel>Format</FieldLabel>
                 <div className="grid grid-cols-2 gap-2">
-                  <Button variant={props.mode === "audio" ? "default" : "outline"} onClick={() => props.setMode("audio")} disabled={!props.inspection?.downloadable}>
+                  <Button variant={props.mode === "audio" ? "default" : "outline"} onClick={() => changeMode("audio")} disabled={!props.inspection?.downloadable}>
                     <MusicIcon data-icon="inline-start" />Audio
                   </Button>
-                  <Button variant={props.mode === "video" ? "default" : "outline"} onClick={() => props.setMode("video")} disabled={!props.inspection?.downloadable || !canUseVideo}>
+                  <Button variant={props.mode === "video" ? "default" : "outline"} onClick={() => changeMode("video")} disabled={!props.inspection?.downloadable || !canUseVideo}>
                     <VideoIcon data-icon="inline-start" />Video
                   </Button>
                 </div>
                 <FieldDescription>{props.inspection ? (canUseVideo ? "YouTube playlists can be saved as audio or video." : "SoundCloud playlists are audio only.") : "Video becomes available after inspecting a YouTube playlist."}</FieldDescription>
               </Field>
               <Field>
-                <FieldLabel>Quality</FieldLabel>
-                <Select value={props.quality} onValueChange={(value) => props.setQuality(value as "best" | "balanced")} disabled={!props.inspection?.downloadable}>
+                <FieldLabel>Preset</FieldLabel>
+                <Select value={props.quality} onValueChange={(value) => props.setQuality(normalizePresetForMode(value, props.mode))} disabled={!props.inspection?.downloadable}>
                   <SelectGroup>
-                    <SelectItem value="best">Best available</SelectItem>
-                    <SelectItem value="balanced">Balanced size</SelectItem>
+                    {presetOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
                   </SelectGroup>
                 </Select>
+                <FieldDescription>{selectedPreset.description}. Saves as {estimatedFileType(props.quality, props.mode)}.</FieldDescription>
               </Field>
               <Field>
                 <FieldLabel htmlFor="playlist-output-folder">Output folder</FieldLabel>
@@ -856,6 +881,7 @@ function PlaylistScreen(props: {
                 <DownloadIcon data-icon="inline-start" />
                 Save selected items
               </Button>
+              <FieldDescription>Each file includes title, uploader, source URL, and thumbnail artwork when the output format supports it.</FieldDescription>
             </FieldGroup>
           </CardContent>
         </Card>
@@ -1143,12 +1169,36 @@ function SettingsScreen({
             </Field>
             <Field>
               <FieldLabel>Default format</FieldLabel>
-              <Select value={settings.defaultFormat} onValueChange={(value) => onSave({ ...settings, defaultFormat: value as DownloadMode })}>
+              <Select
+                value={settings.defaultFormat}
+                onValueChange={(value) => {
+                  const defaultFormat = value as DownloadMode
+                  onSave({
+                    ...settings,
+                    defaultFormat,
+                    defaultQuality: normalizePresetForMode(settings.defaultQuality, defaultFormat),
+                  })
+                }}
+              >
                 <SelectGroup>
                   <SelectItem value="audio">Audio</SelectItem>
                   <SelectItem value="video">Video</SelectItem>
                 </SelectGroup>
               </Select>
+            </Field>
+            <Field>
+              <FieldLabel>Default preset</FieldLabel>
+              <Select
+                value={normalizePresetForMode(settings.defaultQuality, settings.defaultFormat)}
+                onValueChange={(value) => onSave({ ...settings, defaultQuality: normalizePresetForMode(value, settings.defaultFormat) })}
+              >
+                <SelectGroup>
+                  {presetOptionsForMode(settings.defaultFormat).map((option) => (
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  ))}
+                </SelectGroup>
+              </Select>
+              <FieldDescription>{presetDetails(normalizePresetForMode(settings.defaultQuality, settings.defaultFormat), settings.defaultFormat).description}</FieldDescription>
             </Field>
             <Field>
               <FieldLabel>Default output folder</FieldLabel>
