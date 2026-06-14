@@ -32,6 +32,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Toaster } from "@/components/ui/sonner"
 import { Spinner } from "@/components/ui/spinner"
+import unmuzeIcon from "@/assets/unmuze-icon.png"
 import {
   canTransitionDownload,
   defaultSettings,
@@ -232,8 +233,8 @@ function App() {
       <div className="mx-auto flex min-h-screen w-full max-w-7xl">
         <aside className="hidden w-64 shrink-0 border-r bg-muted/30 p-5 md:flex md:flex-col md:gap-6">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <DownloadIcon data-icon="inline-start" />
+            <div className="size-10 overflow-hidden rounded-lg bg-primary">
+              <img className="size-full object-cover" src={unmuzeIcon} alt="" />
             </div>
             <div>
               <h1 className="text-xl font-semibold tracking-normal">Unmuze</h1>
@@ -252,7 +253,10 @@ function App() {
 
         <main className="flex min-w-0 flex-1 flex-col">
           <header className="flex items-center justify-between border-b px-5 py-4 md:hidden">
-            <div className="flex items-center gap-2 font-semibold"><DownloadIcon data-icon="inline-start" />Unmuze</div>
+            <div className="flex items-center gap-2 font-semibold">
+              <img className="size-7 rounded-md object-cover" src={unmuzeIcon} alt="" />
+              Unmuze
+            </div>
             <Tabs value={tab} onValueChange={setTab}>
               <TabsList>
                 <TabsTrigger value="download">Save</TabsTrigger>
