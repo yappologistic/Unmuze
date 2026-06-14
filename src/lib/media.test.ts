@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   audioPresetOptions,
   canTransitionDownload,
+  clampPlaylistConcurrency,
   defaultSettings,
   detectPlatform,
   estimatedFileType,
@@ -57,7 +58,17 @@ describe("settings defaults", () => {
   it("defaults to local-first safe preferences", () => {
     expect(defaultSettings.theme).toBe("system")
     expect(defaultSettings.defaultFormat).toBe("audio")
+    expect(defaultSettings.playlistConcurrency).toBe(2)
     expect(defaultSettings.keepHistory).toBe(true)
+  })
+})
+
+describe("playlist concurrency", () => {
+  it("keeps playlist concurrency inside the supported range", () => {
+    expect(clampPlaylistConcurrency(0)).toBe(1)
+    expect(clampPlaylistConcurrency(2)).toBe(2)
+    expect(clampPlaylistConcurrency(10)).toBe(3)
+    expect(clampPlaylistConcurrency(Number.NaN)).toBe(2)
   })
 })
 

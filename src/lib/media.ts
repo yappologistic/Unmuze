@@ -56,6 +56,7 @@ export type Settings = {
   defaultOutputFolder: string
   defaultFormat: DownloadMode
   defaultQuality: DownloadPreset
+  playlistConcurrency: number
   keepHistory: boolean
 }
 
@@ -110,7 +111,13 @@ export const defaultSettings: Settings = {
   defaultOutputFolder: "",
   defaultFormat: "audio",
   defaultQuality: "best",
+  playlistConcurrency: 2,
   keepHistory: true,
+}
+
+export function clampPlaylistConcurrency(value: number) {
+  if (!Number.isFinite(value)) return 2
+  return Math.min(3, Math.max(1, Math.round(value)))
 }
 
 export type PresetOption = {

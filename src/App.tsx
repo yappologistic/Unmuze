@@ -41,6 +41,7 @@ import { Spinner } from "@/components/ui/spinner"
 import unmuzeIcon from "@/assets/unmuze-icon.png"
 import {
   canTransitionDownload,
+  clampPlaylistConcurrency,
   defaultSettings,
   detectPlatform,
   estimatedFileType,
@@ -119,7 +120,7 @@ function App() {
   const [playlistOutputDir, setPlaylistOutputDir] = useState("")
   const [selectedPlaylistIds, setSelectedPlaylistIds] = useState<Set<string>>(new Set())
   const playlistQueueRef = useRef<PendingDownload[]>([])
-  const playlistRunningRef = useRef(false)
+  const activePlaylistDownloadIdsRef = useRef<Set<string>>(new Set())
   const playlistDownloadIdsRef = useRef<Set<string>>(new Set())
   const cancelledQueuedIdsRef = useRef<Set<string>>(new Set())
 
@@ -151,39 +152,44 @@ function App() {
     }
   }, [settings.theme])
 
+  const playlistConcurrency = clampPlaylistConcurrency(settings.playlistConcurrency)
   const startNextPlaylistDownload = useCallback(() => {
-    if (playlistRunningRef.current) return
-    const next = playlistQueueRef.current.shift()
-    if (!next) return
-    if (cancelledQueuedIdsRef.current.has(next.id)) {
-      cancelledQueuedIdsRef.current.delete(next.id)
-      startNextPlaylistDownload()
-      return
+    while (activePlaylistDownloadIdsRef.current.size < playlistConcurrency) {
+      const next = playlistQueueRef.current.shift()
+      if (!next) return
+      if (cancelledQueuedIdsRef.current.has(next.id)) {
+        cancelledQueuedIdsRef.current.delete(next.id)
+        continue
+      }
+      activePlaylistDownloadIdsRef.current.add(next.id)
+      setDownloads((items) =>
+        items.map((item) =>
+          item.id === next.id
+            ? { ...item, status: "downloading", message: "Starting playlist item." }
+            : item,
+        ),
+      )
+      startDownload(next.request)
+        .then((path) => {
+          setDownloads((items) => items.map((item) => (item.id === next.id ? { ...item, path } : item)))
+        })
+        .catch((err) => {
+          activePlaylistDownloadIdsRef.current.delete(next.id)
+          setDownloads((items) =>
+            items.map((item) =>
+              item.id === next.id
+                ? { ...item, status: "failed", message: readableError(err) }
+                : item,
+            ),
+          )
+          window.setTimeout(startNextPlaylistDownload, 0)
+      })
     }
-    playlistRunningRef.current = true
-    setDownloads((items) =>
-      items.map((item) =>
-        item.id === next.id
-          ? { ...item, status: "downloading", message: "Starting playlist item." }
-          : item,
-      ),
-    )
-    startDownload(next.request)
-      .then((path) => {
-        setDownloads((items) => items.map((item) => (item.id === next.id ? { ...item, path } : item)))
-      })
-      .catch((err) => {
-        playlistRunningRef.current = false
-        setDownloads((items) =>
-          items.map((item) =>
-            item.id === next.id
-              ? { ...item, status: "failed", message: readableError(err) }
-              : item,
-          ),
-        )
-        startNextPlaylistDownload()
-      })
-  }, [])
+  }, [playlistConcurrency])
+
+  useEffect(() => {
+    startNextPlaylistDownload()
+  }, [startNextPlaylistDownload])
 
   useEffect(() => {
     const disposers: Array<() => void> = []
@@ -229,7 +235,7 @@ function App() {
         }),
       )
       if (isPlaylistQueued) {
-        playlistRunningRef.current = false
+        activePlaylistDownloadIdsRef.current.delete(payload.id)
         window.setTimeout(startNextPlaylistDownload, 0)
       }
     }).then((dispose) => disposers.push(dispose))
@@ -455,7 +461,7 @@ function App() {
     })
     setDownloads((items) => [...queuedItems.map(({ item }) => item), ...items])
     startNextPlaylistDownload()
-    toast.success(`Queued ${queuedItems.length} playlist item${queuedItems.length === 1 ? "" : "s"}.`)
+    toast.success(`Queued ${queuedItems.length} playlist item${queuedItems.length === 1 ? "" : "s"} with up to ${playlistConcurrency} running at once.`)
   }
 
   async function handleStartDownload() {
@@ -501,7 +507,7 @@ function App() {
     playlistQueueRef.current = playlistQueueRef.current.filter((item) => item.id !== id)
     await cancelDownload(id).catch(() => undefined)
     setDownloads((items) => items.map((item) => (item.id === id ? { ...item, status: "cancelled", message: "Cancelled by user." } : item)))
-    if (!playlistRunningRef.current) startNextPlaylistDownload()
+    if (!activePlaylistDownloadIdsRef.current.has(id)) startNextPlaylistDownload()
   }
 
   return (
@@ -589,6 +595,7 @@ function App() {
                   setMode={setPlaylistMode}
                   quality={playlistQuality}
                   setQuality={setPlaylistQuality}
+                  concurrency={playlistConcurrency}
                   outputDir={playlistOutputDir}
                   setOutputDir={setPlaylistOutputDir}
                   downloads={downloads}
@@ -775,6 +782,7 @@ function PlaylistScreen(props: {
   setMode: (value: DownloadMode) => void
   quality: DownloadPreset
   setQuality: (value: DownloadPreset) => void
+  concurrency: number
   outputDir: string
   setOutputDir: (value: string) => void
   downloads: DownloadItem[]
@@ -807,7 +815,7 @@ function PlaylistScreen(props: {
       <Alert>
         <ShieldCheckIcon data-icon="inline-start" />
         <AlertTitle>Legal-use notice</AlertTitle>
-        <AlertDescription>You are responsible for having the rights to download playlist items. Unmuze downloads selected entries one at a time and does not bypass protected access.</AlertDescription>
+        <AlertDescription>You are responsible for having the rights to download playlist items. Unmuze only downloads selected public entries and does not bypass protected access.</AlertDescription>
       </Alert>
       <ToolNotice status={props.toolStatus} onOpenSettings={props.onOpenSettings} />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -843,7 +851,7 @@ function PlaylistScreen(props: {
         <Card>
           <CardHeader>
             <CardTitle>Playlist options</CardTitle>
-            <CardDescription>Each selected item is saved as its own file.</CardDescription>
+            <CardDescription>Each selected item is saved as its own file. Up to {props.concurrency} can run at once.</CardDescription>
           </CardHeader>
           <CardContent>
             <FieldGroup>
@@ -1203,6 +1211,20 @@ function SettingsScreen({
             <Field>
               <FieldLabel>Default output folder</FieldLabel>
               <Input value={settings.defaultOutputFolder} onChange={(event) => onSave({ ...settings, defaultOutputFolder: event.target.value })} />
+            </Field>
+            <Field>
+              <FieldLabel>Playlist concurrency</FieldLabel>
+              <Select
+                value={String(clampPlaylistConcurrency(settings.playlistConcurrency))}
+                onValueChange={(value) => onSave({ ...settings, playlistConcurrency: clampPlaylistConcurrency(Number(value)) })}
+              >
+                <SelectGroup>
+                  <SelectItem value="1">1 at a time</SelectItem>
+                  <SelectItem value="2">2 at a time</SelectItem>
+                  <SelectItem value="3">3 at a time</SelectItem>
+                </SelectGroup>
+              </Select>
+              <FieldDescription>Controls how many playlist items can download at the same time.</FieldDescription>
             </Field>
             <div className="flex items-center justify-between gap-3 rounded-md border p-4">
               <div>

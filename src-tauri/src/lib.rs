@@ -52,6 +52,8 @@ struct Settings {
     default_output_folder: String,
     default_format: String,
     default_quality: String,
+    #[serde(default = "default_playlist_concurrency")]
+    playlist_concurrency: u8,
     keep_history: bool,
 }
 
@@ -554,8 +556,18 @@ fn default_settings() -> Settings {
         default_output_folder,
         default_format: "audio".to_string(),
         default_quality: "best".to_string(),
+        playlist_concurrency: default_playlist_concurrency(),
         keep_history: true,
     }
+}
+
+fn default_playlist_concurrency() -> u8 {
+    2
+}
+
+fn normalize_settings(mut settings: Settings) -> Settings {
+    settings.playlist_concurrency = settings.playlist_concurrency.clamp(1, 3);
+    settings
 }
 
 #[tauri::command]
@@ -570,12 +582,15 @@ fn load_settings(app: AppHandle) -> AppResult<Settings> {
             "The app will continue with safe defaults.",
         )
     })?;
-    Ok(serde_json::from_str(&data).unwrap_or_else(|_| default_settings()))
+    Ok(normalize_settings(
+        serde_json::from_str(&data).unwrap_or_else(|_| default_settings()),
+    ))
 }
 
 #[tauri::command]
 fn save_settings(app: AppHandle, settings: Settings) -> AppResult<Settings> {
     let path = app_dir(&app)?.join("settings.json");
+    let settings = normalize_settings(settings);
     let data = serde_json::to_string_pretty(&settings).map_err(|_| {
         user_error(
             "Settings could not be saved.",
@@ -1174,7 +1189,8 @@ pub fn run() {
 mod tests {
     use super::{
         append_audio_preset_args, append_metadata_args, append_video_preset_args, audio_extension,
-        detect_platform, tool_asset, video_selector, Platform, FFMPEG_VERSION, YT_DLP_VERSION,
+        detect_platform, normalize_settings, tool_asset, video_selector, Platform, Settings,
+        FFMPEG_VERSION, YT_DLP_VERSION,
     };
 
     #[test]
@@ -1244,5 +1260,28 @@ mod tests {
         assert!(args.windows(2).any(
             |pair| pair[0] == "--parse-metadata" && pair[1] == "%(uploader|)s:%(meta_artist)s"
         ));
+    }
+
+    #[test]
+    fn defaults_and_clamps_playlist_concurrency_settings() {
+        let legacy = r#"{
+            "theme": "system",
+            "defaultOutputFolder": "",
+            "defaultFormat": "audio",
+            "defaultQuality": "best",
+            "keepHistory": true
+        }"#;
+        let parsed: Settings = serde_json::from_str(legacy).expect("legacy settings");
+        assert_eq!(parsed.playlist_concurrency, 2);
+
+        let normalized = normalize_settings(Settings {
+            theme: "system".to_string(),
+            default_output_folder: String::new(),
+            default_format: "audio".to_string(),
+            default_quality: "best".to_string(),
+            playlist_concurrency: 9,
+            keep_history: true,
+        });
+        assert_eq!(normalized.playlist_concurrency, 3);
     }
 }
