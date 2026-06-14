@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to build, for example v0.1.1"
+        description: "Release tag to build, for example v0.1.2"
         required: true
         type: string
 
@@ -69,6 +69,6 @@ jobs:
         with:
           tagName: ${{ steps.release.outputs.tag }}
           releaseName: "Unmuze ${{ steps.release.outputs.tag }}"
-          releaseBody: "Cross-platform release bundles for Unmuze."
+          releaseBody: "Automated cross-platform release bundles for Unmuze."
           releaseDraft: false
           prerelease: false
