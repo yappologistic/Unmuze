@@ -1,5 +1,9 @@
 # Unmuze
 
+<p align="center">
+  <img src="docs/assets/unmuze-icon.png" alt="Unmuze app icon" width="220" />
+</p>
+
 Unmuze is a lightweight local desktop app for Windows, macOS, and Linux that lets a user paste a supported media URL, inspect it, and save permitted audio or video content locally.
 
 The app is local-first. It does not require an account, does not use a cloud backend, and stores only local preferences and download history on the user device.
@@ -32,22 +36,12 @@ The app is local-first. It does not require an account, does not use a cloud bac
 
 You are responsible for having the rights to download any content you save. Use Unmuze only when the source, your rights, and the platform terms permit downloading.
 
-## Screenshots
-
-Screenshot placeholders:
-
-- Download screen
-- History screen
-- Settings screen
-- Help screen
-
 ## Basic Usage
 
 1. Install Unmuze for your operating system.
 2. Install `yt-dlp` and FFmpeg if you want inspection and conversion support.
 3. Open Unmuze.
-4. Confirm the legal-use acknowledgement in Settings.
-5. Paste a supported public URL.
-6. Select audio or video, choose an output folder, and save locally.
+4. Paste a supported public URL.
+5. Select audio or video, choose an output folder, and save locally.
 
 See [INSTALL.md](INSTALL.md) and [BUILD.md](BUILD.md) for setup and packaging instructions.

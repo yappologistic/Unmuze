@@ -2,6 +2,14 @@
   "name": "unmuze",
   "private": true,
   "version": "0.1.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yappologistic/Unmuze.git"
+  },
+  "homepage": "https://github.com/yappologistic/Unmuze#readme",
+  "bugs": {
+    "url": "https://github.com/yappologistic/Unmuze/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
