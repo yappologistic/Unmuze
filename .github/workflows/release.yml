@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to build, for example v0.3.0"
+        description: "Release tag to build, for example vX.Y.Z"
         required: true
         type: string
 
@@ -71,6 +71,14 @@ jobs:
         with:
           tagName: ${{ steps.release.outputs.tag }}
           releaseName: "Unmuze ${{ steps.release.outputs.tag }}"
-          releaseBody: "Automated cross-platform release bundles for Unmuze."
+          releaseBody: |
+            Cross-platform release bundles for Unmuze.
+
+            What's included:
+            - Windows, macOS, and Linux installers generated from this tag.
+            - Signed updater metadata when updater signing secrets are configured.
+            - Source archives attached by GitHub.
+
+            Before publishing, review and expand these notes with the user-facing changes in this version.
           releaseDraft: false
           prerelease: false

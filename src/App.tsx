@@ -160,6 +160,10 @@ function App() {
     }
   }, [settings.theme])
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0 })
+  }, [tab])
+
   const playlistConcurrency = clampPlaylistConcurrency(settings.playlistConcurrency)
   const startNextPlaylistDownload = useCallback(() => {
     while (activePlaylistDownloadIdsRef.current.size < playlistConcurrency) {
@@ -558,13 +562,13 @@ function App() {
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col">
-          <header className="flex items-center justify-between border-b px-5 py-4 md:hidden">
+          <header className="flex flex-col items-start gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between md:hidden">
             <div className="flex items-center gap-2 font-semibold">
               <img className="size-7 rounded-md object-cover" src={unmuzeIcon} alt="" />
               Unmuze
             </div>
-            <Tabs value={tab} onValueChange={setTab}>
-              <TabsList>
+            <Tabs value={tab} onValueChange={setTab} className="w-full sm:w-auto">
+              <TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
                 <TabsTrigger value="download">Save</TabsTrigger>
                 <TabsTrigger value="playlist">Playlist</TabsTrigger>
                 <TabsTrigger value="history">History</TabsTrigger>
@@ -1485,6 +1489,9 @@ function HelpScreen() {
         </CardHeader>
         <CardContent className="flex flex-col gap-3 text-sm text-muted-foreground">
           <p>Unmuze can install managed media tools locally, inspect supported public YouTube and SoundCloud URLs, and save audio or video where legally permitted.</p>
+          <p>Playlist mode can save selected public items with a configurable concurrency limit, per-item progress, and cancellation.</p>
+          <p>Audio and video presets cover common formats, and supported downloads can embed metadata, source URLs, and artwork.</p>
+          <p>Advanced options can split chaptered sources into separate files and save available video subtitles as SRT sidecar files.</p>
           <p>It stores settings and history locally. It does not create accounts or send your library to a cloud service.</p>
         </CardContent>
       </Card>
@@ -1498,6 +1505,7 @@ function HelpScreen() {
           <p>Spotify tracks, albums, and playlists cannot be downloaded because Spotify does not expose downloadable media files for this kind of app.</p>
           <Separator />
           <p>Use Settings to install or refresh the app-managed yt-dlp and FFmpeg tools if inspection or conversion reports missing tools.</p>
+          <p>Use Check for updates in Settings to install newer signed Unmuze releases without visiting GitHub.</p>
         </CardContent>
       </Card>
     </div>

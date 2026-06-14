@@ -35,5 +35,7 @@ Use **Check for updates** in Settings to install newer signed Unmuze releases fr
 - `Managed tool failed verification`: the downloaded file did not match the pinned checksum. Try again later.
 - `Update check failed`: confirm you can reach GitHub Releases and try again later.
 - `Update install failed`: restart Unmuze and try again. On Windows, the installer may close the app while applying an update.
+- No chapter files were created: the source must provide chapter markers, and **Split chapters** must be enabled before downloading.
+- No subtitles were saved: subtitles must be available from the source, and **Save subtitles** applies to video downloads.
 - `URL requires login or protected access`: Unmuze will not bypass protected access.
 - Spotify cannot download: this is expected; Spotify does not expose downloadable files for this app.

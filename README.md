@@ -53,5 +53,6 @@ You are responsible for having the rights to download any content you save. Use 
 4. Use **Check for updates** in Settings when you want to install the latest signed release without visiting GitHub.
 5. Paste a supported public URL in Download mode, or open Playlist mode for a YouTube playlist or SoundCloud set.
 6. Select audio or video, choose a preset, choose an output folder, and save locally.
+7. Open advanced options when you want chapter splitting or subtitles for sources that provide them.
 
 See [INSTALL.md](INSTALL.md) and [BUILD.md](BUILD.md) for setup and packaging instructions.

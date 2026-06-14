@@ -49,6 +49,8 @@ The release workflow also builds signed updater artifacts and uploads `latest.js
 
 The public updater key is stored in `src-tauri/tauri.conf.json`; do not commit the private key.
 
+After the workflow finishes, review the GitHub release page and replace the starter body with version-specific user-facing changes before sharing the release link.
+
 ## Platform Notes
 
 - Windows builds create MSI/NSIS-style artifacts depending on installed tooling.
