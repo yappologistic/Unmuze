@@ -15,6 +15,7 @@ import {
   ShieldCheckIcon,
   SquareIcon,
   SunIcon,
+  WrenchIcon,
   VideoIcon,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -49,13 +50,16 @@ import {
   type PlaylistInspection,
   sanitizeFilename,
   type Settings,
+  type ToolStatus,
   validateMediaUrl,
 } from "@/lib/media"
 import {
   cancelDownload,
   chooseFolder,
+  getToolStatus,
   inspectMedia,
   inspectPlaylist,
+  installManagedTools,
   loadHistory,
   loadSettings,
   onDownloadFinished,
@@ -82,6 +86,9 @@ function App() {
   const [checking, setChecking] = useState(false)
   const [error, setError] = useState("")
   const [settings, setSettings] = useState<Settings>(defaultSettings)
+  const [toolStatus, setToolStatus] = useState<ToolStatus | null>(null)
+  const [toolsLoading, setToolsLoading] = useState(false)
+  const [toolsInstalling, setToolsInstalling] = useState(false)
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [downloads, setDownloads] = useState<DownloadItem[]>([])
   const [mode, setMode] = useState<DownloadMode>("audio")
@@ -114,6 +121,7 @@ function App() {
       })
       .catch(() => setSettings(defaultSettings))
     loadHistory().then(setHistory).catch(() => setHistory([]))
+    refreshToolStatus()
   }, [])
 
   useEffect(() => {
@@ -246,6 +254,29 @@ function App() {
       await saveSettings(next)
     } catch {
       toast.error("Settings could not be saved.")
+    }
+  }
+
+  async function refreshToolStatus() {
+    setToolsLoading(true)
+    try {
+      setToolStatus(await getToolStatus())
+    } catch (err) {
+      toast.error(readableError(err))
+    } finally {
+      setToolsLoading(false)
+    }
+  }
+
+  async function handleInstallManagedTools() {
+    setToolsInstalling(true)
+    try {
+      setToolStatus(await installManagedTools())
+      toast.success("Managed media tools installed.")
+    } catch (err) {
+      toast.error(readableError(err))
+    } finally {
+      setToolsInstalling(false)
     }
   }
 
@@ -456,6 +487,7 @@ function App() {
                   checking={checking}
                   error={error}
                   inspection={inspection}
+                  toolStatus={toolStatus}
                   mode={mode}
                   setMode={setMode}
                   quality={quality}
@@ -469,6 +501,7 @@ function App() {
                   onChooseFolder={handleChooseFolder}
                   onStartDownload={handleStartDownload}
                   onCancel={handleCancel}
+                  onOpenSettings={() => setTab("settings")}
                 />
               </TabsContent>
               <TabsContent value="playlist">
@@ -480,6 +513,7 @@ function App() {
                   checking={playlistChecking}
                   error={playlistError}
                   inspection={playlistInspection}
+                  toolStatus={toolStatus}
                   selectedIds={selectedPlaylistIds}
                   mode={playlistMode}
                   setMode={setPlaylistMode}
@@ -494,13 +528,22 @@ function App() {
                   onToggleAll={setAllPlaylistEntries}
                   onStartDownload={handleStartPlaylistDownload}
                   onCancel={handleCancel}
+                  onOpenSettings={() => setTab("settings")}
                 />
               </TabsContent>
               <TabsContent value="history">
                 <HistoryScreen history={history} setHistory={setHistory} />
               </TabsContent>
               <TabsContent value="settings">
-                <SettingsScreen settings={settings} onSave={handleSaveSettings} />
+                <SettingsScreen
+                  settings={settings}
+                  toolStatus={toolStatus}
+                  toolsLoading={toolsLoading}
+                  toolsInstalling={toolsInstalling}
+                  onSave={handleSaveSettings}
+                  onRefreshTools={refreshToolStatus}
+                  onInstallTools={handleInstallManagedTools}
+                />
               </TabsContent>
               <TabsContent value="help">
                 <HelpScreen />
@@ -521,6 +564,7 @@ function DownloadScreen(props: {
   checking: boolean
   error: string
   inspection: Inspection | null
+  toolStatus: ToolStatus | null
   mode: DownloadMode
   setMode: (value: DownloadMode) => void
   quality: "best" | "balanced"
@@ -534,6 +578,7 @@ function DownloadScreen(props: {
   onChooseFolder: () => void
   onStartDownload: () => void
   onCancel: (id: string) => void
+  onOpenSettings: () => void
 }) {
   const canDownload = Boolean(props.inspection?.downloadable && !props.checking)
   return (
@@ -547,6 +592,7 @@ function DownloadScreen(props: {
         <AlertTitle>Legal-use notice</AlertTitle>
         <AlertDescription>You are responsible for having the rights to download content. Unmuze does not bypass DRM, paywalls, login requirements, encryption, region locks, or other access controls.</AlertDescription>
       </Alert>
+      <ToolNotice status={props.toolStatus} onOpenSettings={props.onOpenSettings} />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <Card>
           <CardHeader>
@@ -637,6 +683,7 @@ function PlaylistScreen(props: {
   checking: boolean
   error: string
   inspection: PlaylistInspection | null
+  toolStatus: ToolStatus | null
   selectedIds: Set<string>
   mode: DownloadMode
   setMode: (value: DownloadMode) => void
@@ -651,6 +698,7 @@ function PlaylistScreen(props: {
   onToggleAll: (checked: boolean) => void
   onStartDownload: () => void
   onCancel: (id: string) => void
+  onOpenSettings: () => void
 }) {
   const canDownload = Boolean(props.inspection?.downloadable && props.selectedIds.size > 0 && !props.checking)
   const canUseVideo = props.inspection?.platform === "youTube"
@@ -669,6 +717,7 @@ function PlaylistScreen(props: {
         <AlertTitle>Legal-use notice</AlertTitle>
         <AlertDescription>You are responsible for having the rights to download playlist items. Unmuze downloads selected entries one at a time and does not bypass protected access.</AlertDescription>
       </Alert>
+      <ToolNotice status={props.toolStatus} onOpenSettings={props.onOpenSettings} />
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <Card>
           <CardHeader>
@@ -779,6 +828,22 @@ function PlaylistProgressSummary({ downloads }: { downloads: DownloadItem[] }) {
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function ToolNotice({ status, onOpenSettings }: { status: ToolStatus | null; onOpenSettings: () => void }) {
+  if (!status || status.ready) return null
+  return (
+    <Alert>
+      <WrenchIcon data-icon="inline-start" />
+      <AlertTitle>Media tools need setup</AlertTitle>
+      <AlertDescription className="flex flex-col gap-3">
+        <span>Install the app-managed yt-dlp and FFmpeg tools before checking or saving media.</span>
+        <span>
+          <Button variant="outline" size="sm" onClick={onOpenSettings}>Open Settings</Button>
+        </span>
+      </AlertDescription>
+    </Alert>
   )
 }
 
@@ -956,7 +1021,24 @@ function HistoryScreen({ history, setHistory }: { history: HistoryItem[]; setHis
   )
 }
 
-function SettingsScreen({ settings, onSave }: { settings: Settings; onSave: (settings: Settings) => void }) {
+function SettingsScreen({
+  settings,
+  toolStatus,
+  toolsLoading,
+  toolsInstalling,
+  onSave,
+  onRefreshTools,
+  onInstallTools,
+}: {
+  settings: Settings
+  toolStatus: ToolStatus | null
+  toolsLoading: boolean
+  toolsInstalling: boolean
+  onSave: (settings: Settings) => void
+  onRefreshTools: () => void
+  onInstallTools: () => void
+}) {
+  const managedToolsInstalled = Boolean(toolStatus?.ytDlp.managedInstalled && toolStatus?.ffmpeg.managedInstalled)
   return (
     <div className="grid gap-5 lg:grid-cols-2">
       <Card>
@@ -999,6 +1081,37 @@ function SettingsScreen({ settings, onSave }: { settings: Settings; onSave: (set
       </Card>
       <Card>
         <CardHeader>
+          <CardTitle>Media tools</CardTitle>
+          <CardDescription>Install local managed copies of yt-dlp and FFmpeg.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            {toolStatus ? (
+              <>
+                <ToolStatusRow tool={toolStatus.ytDlp} />
+                <ToolStatusRow tool={toolStatus.ffmpeg} />
+              </>
+            ) : (
+              <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                {toolsLoading ? "Checking media tools..." : "Tool status has not been checked yet."}
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={onInstallTools} disabled={toolsInstalling}>
+                {toolsInstalling ? <Spinner /> : <WrenchIcon data-icon="inline-start" />}
+                {managedToolsInstalled ? "Reinstall managed tools" : "Install managed tools"}
+              </Button>
+              <Button variant="outline" onClick={onRefreshTools} disabled={toolsLoading || toolsInstalling}>
+                {toolsLoading ? <Spinner /> : <SearchIcon data-icon="inline-start" />}
+                Check again
+              </Button>
+            </div>
+            <FieldDescription>Downloads pinned, checksum-verified binaries into this app's local data folder. Managed tools are used before system PATH tools.</FieldDescription>
+          </FieldGroup>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
           <CardTitle>Download boundaries</CardTitle>
           <CardDescription>Protected access stays unavailable.</CardDescription>
         </CardHeader>
@@ -1014,6 +1127,27 @@ function SettingsScreen({ settings, onSave }: { settings: Settings; onSave: (set
   )
 }
 
+function ToolStatusRow({ tool }: { tool: ToolStatus["ytDlp"] }) {
+  return (
+    <div className="rounded-md border p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <FieldLabel>{tool.name}</FieldLabel>
+            <Badge variant={tool.ready ? "default" : "destructive"}>{tool.activeSource}</Badge>
+          </div>
+          <FieldDescription>{tool.message}</FieldDescription>
+        </div>
+        <Badge variant="outline">Pinned {tool.requiredVersion}</Badge>
+      </div>
+      <div className="mt-3 grid gap-2 text-sm text-muted-foreground">
+        <div>Managed: {tool.managedInstalled ? tool.managedVersion || "installed" : "not installed"}</div>
+        <div>System PATH: {tool.systemInstalled ? tool.systemVersion || "available" : "not found"}</div>
+      </div>
+    </div>
+  )
+}
+
 function HelpScreen() {
   return (
     <div className="grid gap-5 lg:grid-cols-2">
@@ -1023,7 +1157,7 @@ function HelpScreen() {
           <CardDescription>A local desktop tool for permitted public media saves.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 text-sm text-muted-foreground">
-          <p>Unmuze can inspect supported public YouTube and SoundCloud URLs through local tooling and save audio or video where legally permitted.</p>
+          <p>Unmuze can install managed media tools locally, inspect supported public YouTube and SoundCloud URLs, and save audio or video where legally permitted.</p>
           <p>It stores settings and history locally. It does not create accounts or send your library to a cloud service.</p>
         </CardContent>
       </Card>
@@ -1036,7 +1170,7 @@ function HelpScreen() {
           <p>It does not bypass DRM, paywalls, login restrictions, encryption, region locks, private links, or other access controls.</p>
           <p>Spotify tracks, albums, and playlists cannot be downloaded because Spotify does not expose downloadable media files for this kind of app.</p>
           <Separator />
-          <p>Install `yt-dlp` and FFmpeg locally if inspection or conversion reports missing tools.</p>
+          <p>Use Settings to install or refresh the app-managed yt-dlp and FFmpeg tools if inspection or conversion reports missing tools.</p>
         </CardContent>
       </Card>
     </div>

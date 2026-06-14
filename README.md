@@ -13,7 +13,8 @@ The app is local-first. It does not require an account, does not use a cloud bac
 - Accepts public YouTube and SoundCloud URLs, including YouTube playlists and SoundCloud sets in Playlist mode.
 - Detects the platform automatically.
 - Shows available metadata when local tooling can inspect the URL.
-- Saves audio or video through local `yt-dlp` and FFmpeg tooling when the content is legally permitted and technically available.
+- Installs checksum-verified managed copies of `yt-dlp` and FFmpeg into the local app data folder.
+- Saves audio or video through managed or system media tooling when the content is legally permitted and technically available.
 - Shows progress, cancellation, completed downloads, and local history.
 - Supports light, dark, and system theme settings.
 
@@ -27,9 +28,9 @@ The app is local-first. It does not require an account, does not use a cloud bac
 
 | Platform | Inspect | Download |
 | --- | --- | --- |
-| YouTube public URLs | Yes, when `yt-dlp` can access metadata | Yes, only when legally permitted |
+| YouTube public URLs | Yes, when local tools can access metadata | Yes, only when legally permitted |
 | YouTube public playlists | Yes, with per-item selection | Yes, selected public items only when legally permitted |
-| SoundCloud public URLs | Yes, when `yt-dlp` can access metadata | Yes, only when legally permitted |
+| SoundCloud public URLs | Yes, when local tools can access metadata | Yes, only when legally permitted |
 | SoundCloud public sets | Yes, with per-item selection | Yes, selected public audio items only when legally permitted |
 | Spotify | Protected-platform explanation only | No |
 | Other sites | Unsupported message | No |
@@ -41,8 +42,8 @@ You are responsible for having the rights to download any content you save. Use 
 ## Basic Usage
 
 1. Install Unmuze for your operating system.
-2. Install `yt-dlp` and FFmpeg if you want inspection and conversion support.
-3. Open Unmuze.
+2. Open Unmuze.
+3. In Settings, choose **Install managed tools** if the app reports missing media tools.
 4. Paste a supported public URL in Download mode, or open Playlist mode for a YouTube playlist or SoundCloud set.
 5. Select audio or video, choose an output folder, and save locally.
 

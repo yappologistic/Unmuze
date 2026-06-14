@@ -49,6 +49,25 @@ export type Settings = {
   keepHistory: boolean
 }
 
+export type ToolDetail = {
+  name: string
+  requiredVersion: string
+  managedInstalled: boolean
+  managedVersion?: string | null
+  managedPath?: string | null
+  systemInstalled: boolean
+  systemVersion?: string | null
+  activeSource: "managed" | "system" | "missing" | string
+  ready: boolean
+  message: string
+}
+
+export type ToolStatus = {
+  ytDlp: ToolDetail
+  ffmpeg: ToolDetail
+  ready: boolean
+}
+
 export type HistoryItem = {
   id: string
   title: string

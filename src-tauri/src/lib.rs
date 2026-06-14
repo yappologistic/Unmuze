@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     fs,
@@ -9,6 +10,9 @@ use std::{
     thread,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
+
+const YT_DLP_VERSION: &str = "2026.06.09";
+const FFMPEG_VERSION: &str = "n8.0.1-1";
 
 #[derive(Default)]
 struct DownloadRegistry(Mutex<HashMap<String, Arc<Mutex<Child>>>>);
@@ -97,6 +101,39 @@ struct PlaylistInspection {
     limitation: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ToolDetail {
+    name: String,
+    required_version: String,
+    managed_installed: bool,
+    managed_version: Option<String>,
+    managed_path: Option<String>,
+    system_installed: bool,
+    system_version: Option<String>,
+    active_source: String,
+    ready: bool,
+    message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolStatus {
+    yt_dlp: ToolDetail,
+    ffmpeg: ToolDetail,
+    ready: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ToolAsset {
+    tool: &'static str,
+    version: &'static str,
+    file_name: &'static str,
+    url: &'static str,
+    sha256: &'static str,
+    executable_name: &'static str,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CommandError {
@@ -127,6 +164,280 @@ fn user_error(message: &str, suggestion: &str) -> CommandError {
         message: message.to_string(),
         suggestion: suggestion.to_string(),
     }
+}
+
+fn executable_suffix() -> &'static str {
+    if cfg!(windows) {
+        ".exe"
+    } else {
+        ""
+    }
+}
+
+fn tool_asset(tool: &str) -> AppResult<ToolAsset> {
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+    match (tool, os, arch) {
+        ("yt-dlp", "windows", "x86_64") => Ok(ToolAsset {
+            tool: "yt-dlp",
+            version: YT_DLP_VERSION,
+            file_name: "yt-dlp.exe",
+            url: "https://github.com/yt-dlp/yt-dlp/releases/download/2026.06.09/yt-dlp.exe",
+            sha256: "3a48cb955d55c8821b60ccbdbbc6f61bc958f2f3d3b7ad5eaf3d83a543293a27",
+            executable_name: "yt-dlp.exe",
+        }),
+        ("yt-dlp", "windows", "aarch64") => Ok(ToolAsset {
+            tool: "yt-dlp",
+            version: YT_DLP_VERSION,
+            file_name: "yt-dlp_arm64.exe",
+            url: "https://github.com/yt-dlp/yt-dlp/releases/download/2026.06.09/yt-dlp_arm64.exe",
+            sha256: "847583f91bb6d26479c1dc9643c2f4b8857a90b40d619da97b0cfabccb9138d0",
+            executable_name: "yt-dlp.exe",
+        }),
+        ("yt-dlp", "macos", _) => Ok(ToolAsset {
+            tool: "yt-dlp",
+            version: YT_DLP_VERSION,
+            file_name: "yt-dlp_macos",
+            url: "https://github.com/yt-dlp/yt-dlp/releases/download/2026.06.09/yt-dlp_macos",
+            sha256: "b82c3626952e6c14eaf654cc565866775ffd0b9ffb7021628ac59b42c2f4f244",
+            executable_name: "yt-dlp",
+        }),
+        ("yt-dlp", "linux", "x86_64") => Ok(ToolAsset {
+            tool: "yt-dlp",
+            version: YT_DLP_VERSION,
+            file_name: "yt-dlp_linux",
+            url: "https://github.com/yt-dlp/yt-dlp/releases/download/2026.06.09/yt-dlp_linux",
+            sha256: "bf8aac79b72287a6d2043074415132558b43743a8f9461a22b0141e90f16ce66",
+            executable_name: "yt-dlp",
+        }),
+        ("yt-dlp", "linux", "aarch64") => Ok(ToolAsset {
+            tool: "yt-dlp",
+            version: YT_DLP_VERSION,
+            file_name: "yt-dlp_linux_aarch64",
+            url: "https://github.com/yt-dlp/yt-dlp/releases/download/2026.06.09/yt-dlp_linux_aarch64",
+            sha256: "cabd246445bdfde0eda0dfe68bbe90354be83f3fdbbf077df11a2ea55f41cdbd",
+            executable_name: "yt-dlp",
+        }),
+        ("ffmpeg", "windows", "x86_64") => Ok(ToolAsset {
+            tool: "ffmpeg",
+            version: FFMPEG_VERSION,
+            file_name: "ffmpeg-win-x64.exe",
+            url: "https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.0.1-1/ffmpeg-win-x64.exe",
+            sha256: "73d555001653d97d3bb328e68e3eb36cf0dca395babd3714d4e51c42da9b16ba",
+            executable_name: "ffmpeg.exe",
+        }),
+        ("ffmpeg", "macos", "aarch64") => Ok(ToolAsset {
+            tool: "ffmpeg",
+            version: FFMPEG_VERSION,
+            file_name: "ffmpeg-osx-arm64",
+            url: "https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.0.1-1/ffmpeg-osx-arm64",
+            sha256: "c334b7f418e10201dc6c8e42407f5198c3270524cc77d40606e746be3c49159a",
+            executable_name: "ffmpeg",
+        }),
+        ("ffmpeg", "macos", "x86_64") => Ok(ToolAsset {
+            tool: "ffmpeg",
+            version: FFMPEG_VERSION,
+            file_name: "ffmpeg-osx-x64",
+            url: "https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.0.1-1/ffmpeg-osx-x64",
+            sha256: "5b12ece6e1cdecff3a2af544dc85f6c91c0085b1098adc34fd3f09560b7b3c62",
+            executable_name: "ffmpeg",
+        }),
+        ("ffmpeg", "linux", "x86_64") => Ok(ToolAsset {
+            tool: "ffmpeg",
+            version: FFMPEG_VERSION,
+            file_name: "ffmpeg-linux-x64",
+            url: "https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.0.1-1/ffmpeg-linux-x64",
+            sha256: "b66cc32cd45584ff5f65b8957be4fa93b43d002c502808248f6de3fc5cbc1c31",
+            executable_name: "ffmpeg",
+        }),
+        ("ffmpeg", "linux", "aarch64") => Ok(ToolAsset {
+            tool: "ffmpeg",
+            version: FFMPEG_VERSION,
+            file_name: "ffmpeg-linux-arm64",
+            url: "https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.0.1-1/ffmpeg-linux-arm64",
+            sha256: "ff183f17f37a6a704ec0a4f5dbdc42519a1564366470ddd7e4d0474d07c8a3c8",
+            executable_name: "ffmpeg",
+        }),
+        _ => Err(user_error(
+            "Managed media tools are not available for this platform.",
+            "Install yt-dlp and FFmpeg manually, then make sure they are on your PATH.",
+        )),
+    }
+}
+
+fn tool_dir(app: &AppHandle, asset: &ToolAsset) -> AppResult<PathBuf> {
+    Ok(app_dir(app)?
+        .join("tools")
+        .join(asset.tool)
+        .join(asset.version))
+}
+
+fn managed_tool_path(app: &AppHandle, tool: &str) -> AppResult<Option<PathBuf>> {
+    let asset = tool_asset(tool)?;
+    let path = tool_dir(app, &asset)?.join(asset.executable_name);
+    Ok(path.exists().then_some(path))
+}
+
+fn active_tool_path(app: &AppHandle, tool: &str) -> String {
+    managed_tool_path(app, tool)
+        .ok()
+        .flatten()
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_else(|| format!("{tool}{}", executable_suffix()))
+}
+
+fn ffmpeg_location_arg(app: &AppHandle) -> Option<String> {
+    managed_tool_path(app, "ffmpeg")
+        .ok()
+        .flatten()
+        .and_then(|path| {
+            path.parent()
+                .map(|parent| parent.to_string_lossy().to_string())
+        })
+}
+
+fn command_version(command: &str) -> Option<String> {
+    Command::new(command)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .unwrap_or("")
+                .to_string()
+        })
+        .filter(|line| !line.is_empty())
+}
+
+fn tool_detail(app: &AppHandle, tool: &str, label: &str) -> AppResult<ToolDetail> {
+    let asset = tool_asset(tool)?;
+    let managed_path = managed_tool_path(app, tool)?;
+    let managed_version = managed_path
+        .as_ref()
+        .and_then(|path| command_version(&path.to_string_lossy()));
+    let system_command = format!("{tool}{}", executable_suffix());
+    let system_version = command_version(&system_command);
+    let managed_installed = managed_path.is_some();
+    let system_installed = system_version.is_some();
+    let ready = managed_installed || system_installed;
+    let active_source = if managed_installed {
+        "managed"
+    } else if system_installed {
+        "system"
+    } else {
+        "missing"
+    };
+    let message = match active_source {
+        "managed" => format!("Using managed {label} {}.", asset.version),
+        "system" => format!("Using {label} from your system PATH."),
+        _ => format!("{label} is missing. Install managed tools from Settings."),
+    };
+    Ok(ToolDetail {
+        name: label.to_string(),
+        required_version: asset.version.to_string(),
+        managed_installed,
+        managed_version,
+        managed_path: managed_path.map(|path| path.to_string_lossy().to_string()),
+        system_installed,
+        system_version,
+        active_source: active_source.to_string(),
+        ready,
+        message,
+    })
+}
+
+fn tool_status_for_app(app: &AppHandle) -> AppResult<ToolStatus> {
+    let yt_dlp = tool_detail(app, "yt-dlp", "yt-dlp")?;
+    let ffmpeg = tool_detail(app, "ffmpeg", "FFmpeg")?;
+    Ok(ToolStatus {
+        ready: yt_dlp.ready && ffmpeg.ready,
+        yt_dlp,
+        ffmpeg,
+    })
+}
+
+fn set_executable_permissions(path: &Path) -> AppResult<()> {
+    #[cfg(not(unix))]
+    let _ = path;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(path)
+            .map_err(|_| {
+                user_error(
+                    "Managed tool permissions could not be read.",
+                    "Try installing the tools again.",
+                )
+            })?
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).map_err(|_| {
+            user_error(
+                "Managed tool permissions could not be updated.",
+                "Check app data folder permissions and try again.",
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn install_asset(app: &AppHandle, asset: ToolAsset) -> AppResult<()> {
+    let dir = tool_dir(app, &asset)?;
+    fs::create_dir_all(&dir).map_err(|_| {
+        user_error(
+            "Managed tools could not be installed.",
+            "Check app data folder permissions and try again.",
+        )
+    })?;
+    let response = reqwest::blocking::get(asset.url).map_err(|_| {
+        user_error(
+            "The managed tool could not be downloaded.",
+            "Check your internet connection and try again.",
+        )
+    })?;
+    if !response.status().is_success() {
+        return Err(user_error(
+            "The managed tool download was unavailable.",
+            "Try again later or install the tools manually.",
+        ));
+    }
+    let bytes = response.bytes().map_err(|_| {
+        user_error(
+            "The managed tool download could not be read.",
+            "Try again later.",
+        )
+    })?;
+    let digest = hex::encode(Sha256::digest(&bytes));
+    if digest != asset.sha256 {
+        return Err(user_error(
+            "The managed tool failed verification.",
+            "The downloaded file did not match the pinned checksum, so it was not installed.",
+        ));
+    }
+    let downloaded_path = dir.join(asset.file_name);
+    fs::write(&downloaded_path, &bytes).map_err(|_| {
+        user_error(
+            "The managed tool could not be saved.",
+            "Check app data folder permissions and try again.",
+        )
+    })?;
+    let executable_path = dir.join(asset.executable_name);
+    if downloaded_path != executable_path {
+        fs::copy(&downloaded_path, &executable_path).map_err(|_| {
+            user_error(
+                "The managed tool could not be prepared.",
+                "Check app data folder permissions and try again.",
+            )
+        })?;
+    }
+    set_executable_permissions(&executable_path)?;
+    Ok(())
 }
 
 fn detect_platform(url: &str) -> Platform {
@@ -302,7 +613,19 @@ fn save_history(app: AppHandle, history: Vec<HistoryItem>) -> AppResult<Vec<Hist
 }
 
 #[tauri::command]
-fn inspect_media(request: InspectRequest) -> AppResult<Inspection> {
+fn get_tool_status(app: AppHandle) -> AppResult<ToolStatus> {
+    tool_status_for_app(&app)
+}
+
+#[tauri::command]
+fn install_managed_tools(app: AppHandle) -> AppResult<ToolStatus> {
+    install_asset(&app, tool_asset("yt-dlp")?)?;
+    install_asset(&app, tool_asset("ffmpeg")?)?;
+    tool_status_for_app(&app)
+}
+
+#[tauri::command]
+fn inspect_media(app: AppHandle, request: InspectRequest) -> AppResult<Inspection> {
     validate_public_url(&request.url)?;
     let platform = detect_platform(&request.url);
     match platform {
@@ -328,12 +651,12 @@ fn inspect_media(request: InspectRequest) -> AppResult<Inspection> {
             limitation: Some("This app currently supports permitted public YouTube and SoundCloud URLs only.".to_string()),
             suggested_file_name: None,
         }),
-        Platform::YouTube | Platform::SoundCloud => inspect_with_ytdlp(&request.url, platform),
+        Platform::YouTube | Platform::SoundCloud => inspect_with_ytdlp(&app, &request.url, platform),
     }
 }
 
 #[tauri::command]
-fn inspect_playlist(request: InspectRequest) -> AppResult<PlaylistInspection> {
+fn inspect_playlist(app: AppHandle, request: InspectRequest) -> AppResult<PlaylistInspection> {
     validate_public_url(&request.url)?;
     let platform = detect_platform(&request.url);
     match platform {
@@ -353,26 +676,35 @@ fn inspect_playlist(request: InspectRequest) -> AppResult<PlaylistInspection> {
             entries: vec![],
             limitation: Some("Playlist mode currently supports permitted public YouTube and SoundCloud playlists only.".to_string()),
         }),
-        Platform::YouTube | Platform::SoundCloud => inspect_playlist_with_ytdlp(&request.url, platform),
+        Platform::YouTube | Platform::SoundCloud => inspect_playlist_with_ytdlp(&app, &request.url, platform),
     }
 }
 
-fn inspect_playlist_with_ytdlp(url: &str, platform: Platform) -> AppResult<PlaylistInspection> {
-    let output = Command::new("yt-dlp")
-        .args([
-            "--dump-single-json",
-            "--flat-playlist",
-            "--skip-download",
-            "--no-warnings",
-            url,
-        ])
+fn inspect_playlist_with_ytdlp(
+    app: &AppHandle,
+    url: &str,
+    platform: Platform,
+) -> AppResult<PlaylistInspection> {
+    let ytdlp = active_tool_path(app, "yt-dlp");
+    let mut command = Command::new(ytdlp);
+    command.args([
+        "--dump-single-json",
+        "--flat-playlist",
+        "--skip-download",
+        "--no-warnings",
+        url,
+    ]);
+    if let Some(ffmpeg_location) = ffmpeg_location_arg(app) {
+        command.args(["--ffmpeg-location", &ffmpeg_location]);
+    }
+    let output = command
         .stdin(Stdio::null())
         .stderr(Stdio::piped())
         .output()
         .map_err(|_| {
             user_error(
                 "yt-dlp is missing or unavailable.",
-                "Install yt-dlp and make sure it is on your PATH, then try again.",
+                "Install managed tools from Settings, or install yt-dlp manually and make sure it is on your PATH.",
             )
         })?;
     if !output.status.success() {
@@ -503,22 +835,27 @@ fn playlist_entry_from_json(
     })
 }
 
-fn inspect_with_ytdlp(url: &str, platform: Platform) -> AppResult<Inspection> {
-    let output = Command::new("yt-dlp")
-        .args([
-            "--dump-single-json",
-            "--skip-download",
-            "--no-warnings",
-            "--no-playlist",
-            url,
-        ])
+fn inspect_with_ytdlp(app: &AppHandle, url: &str, platform: Platform) -> AppResult<Inspection> {
+    let ytdlp = active_tool_path(app, "yt-dlp");
+    let mut command = Command::new(ytdlp);
+    command.args([
+        "--dump-single-json",
+        "--skip-download",
+        "--no-warnings",
+        "--no-playlist",
+        url,
+    ]);
+    if let Some(ffmpeg_location) = ffmpeg_location_arg(app) {
+        command.args(["--ffmpeg-location", &ffmpeg_location]);
+    }
+    let output = command
         .stdin(Stdio::null())
         .stderr(Stdio::piped())
         .output()
         .map_err(|_| {
             user_error(
                 "yt-dlp is missing or unavailable.",
-                "Install yt-dlp and make sure it is on your PATH, then try again.",
+                "Install managed tools from Settings, or install yt-dlp manually and make sure it is on your PATH.",
             )
         })?;
     if !output.status.success() {
@@ -607,6 +944,9 @@ fn start_download(
         "-o".to_string(),
         template.clone(),
     ];
+    if let Some(ffmpeg_location) = ffmpeg_location_arg(&app) {
+        args.extend(["--ffmpeg-location".to_string(), ffmpeg_location]);
+    }
     if request.mode == "audio" {
         args.extend([
             "-f".to_string(),
@@ -631,7 +971,8 @@ fn start_download(
         ]);
     }
     args.push(request.url.clone());
-    let mut child = Command::new("yt-dlp")
+    let ytdlp = active_tool_path(&app, "yt-dlp");
+    let mut child = Command::new(ytdlp)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -640,7 +981,7 @@ fn start_download(
         .map_err(|_| {
             user_error(
                 "yt-dlp is missing or unavailable.",
-                "Install yt-dlp and FFmpeg, then make sure both are on your PATH.",
+                "Install managed tools from Settings, or install yt-dlp and FFmpeg manually.",
             )
         })?;
 
@@ -745,6 +1086,8 @@ pub fn run() {
             save_settings,
             load_history,
             save_history,
+            get_tool_status,
+            install_managed_tools,
             inspect_media,
             inspect_playlist,
             start_download,
@@ -767,7 +1110,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{detect_platform, Platform};
+    use super::{detect_platform, tool_asset, Platform, FFMPEG_VERSION, YT_DLP_VERSION};
 
     #[test]
     fn detects_soundcloud_hosts_for_ytdlp_path() {
@@ -783,5 +1126,17 @@ mod tests {
             detect_platform("https://on.soundcloud.com/abc123"),
             Platform::SoundCloud
         );
+    }
+
+    #[test]
+    fn selects_pinned_tool_assets_for_current_platform() {
+        let ytdlp = tool_asset("yt-dlp").expect("yt-dlp asset");
+        let ffmpeg = tool_asset("ffmpeg").expect("ffmpeg asset");
+        assert_eq!(ytdlp.version, YT_DLP_VERSION);
+        assert_eq!(ffmpeg.version, FFMPEG_VERSION);
+        assert_eq!(ytdlp.sha256.len(), 64);
+        assert_eq!(ffmpeg.sha256.len(), 64);
+        assert!(ytdlp.url.starts_with("https://github.com/"));
+        assert!(ffmpeg.url.starts_with("https://github.com/"));
     }
 }

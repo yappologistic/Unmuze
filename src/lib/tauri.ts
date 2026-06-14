@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import { open } from "@tauri-apps/plugin-dialog"
-import type { HistoryItem, Inspection, PlaylistInspection, Settings } from "@/lib/media"
+import type { HistoryItem, Inspection, PlaylistInspection, Settings, ToolStatus } from "@/lib/media"
 
 const isTauri = "__TAURI_INTERNALS__" in window
 
@@ -26,6 +26,14 @@ export async function loadHistory() {
 
 export async function saveHistory(history: HistoryItem[]) {
   return callBackend<HistoryItem[]>("save_history", { history })
+}
+
+export async function getToolStatus() {
+  return callBackend<ToolStatus>("get_tool_status")
+}
+
+export async function installManagedTools() {
+  return callBackend<ToolStatus>("install_managed_tools")
 }
 
 export async function inspectMedia(url: string) {

@@ -6,7 +6,7 @@
 - npm 10 or newer.
 - Rust stable.
 - Platform build tools required by Tauri.
-- Optional runtime tools: `yt-dlp` and FFmpeg.
+- Optional runtime tools: `yt-dlp` and FFmpeg. The app can also install managed copies into its local app data folder.
 
 ## Development
 
