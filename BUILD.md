@@ -42,6 +42,13 @@ Tauri writes platform-specific installers under `src-tauri/target/release/bundle
 
 GitHub Actions builds release bundles for Windows, macOS, and Linux when a version tag is pushed or when the release workflow is run manually.
 
+The release workflow also builds signed updater artifacts and uploads `latest.json` for in-app updates. The repository must have these Actions secrets configured:
+
+- `TAURI_SIGNING_PRIVATE_KEY`: private updater signing key content.
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: optional password if the signing key was generated with one.
+
+The public updater key is stored in `src-tauri/tauri.conf.json`; do not commit the private key.
+
 ## Platform Notes
 
 - Windows builds create MSI/NSIS-style artifacts depending on installed tooling.

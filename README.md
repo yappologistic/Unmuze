@@ -17,6 +17,7 @@ The app is local-first. It does not require an account, does not use a cloud bac
 - Saves audio or video through managed or system media tooling when the content is legally permitted and technically available.
 - Shows progress, cancellation, completed downloads, and local history.
 - Supports light, dark, and system theme settings.
+- Checks for signed app updates from inside Settings.
 
 ## What It Does Not Do
 
@@ -44,7 +45,8 @@ You are responsible for having the rights to download any content you save. Use 
 1. Install Unmuze for your operating system.
 2. Open Unmuze.
 3. In Settings, choose **Install managed tools** if the app reports missing media tools.
-4. Paste a supported public URL in Download mode, or open Playlist mode for a YouTube playlist or SoundCloud set.
-5. Select audio or video, choose an output folder, and save locally.
+4. Use **Check for updates** in Settings when you want to install the latest signed release without visiting GitHub.
+5. Paste a supported public URL in Download mode, or open Playlist mode for a YouTube playlist or SoundCloud set.
+6. Select audio or video, choose an output folder, and save locally.
 
 See [INSTALL.md](INSTALL.md) and [BUILD.md](BUILD.md) for setup and packaging instructions.

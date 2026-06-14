@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { getVersion } from "@tauri-apps/api/app"
+import { relaunch } from "@tauri-apps/plugin-process"
+import { check, type Update } from "@tauri-apps/plugin-updater"
 import {
   AlertCircleIcon,
   DownloadIcon,
@@ -15,6 +18,7 @@ import {
   ShieldCheckIcon,
   SquareIcon,
   SunIcon,
+  RefreshCwIcon,
   WrenchIcon,
   VideoIcon,
 } from "lucide-react"
@@ -89,6 +93,12 @@ function App() {
   const [toolStatus, setToolStatus] = useState<ToolStatus | null>(null)
   const [toolsLoading, setToolsLoading] = useState(false)
   const [toolsInstalling, setToolsInstalling] = useState(false)
+  const [appVersion, setAppVersion] = useState("")
+  const [updateChecking, setUpdateChecking] = useState(false)
+  const [updateInstalling, setUpdateInstalling] = useState(false)
+  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null)
+  const [updateProgress, setUpdateProgress] = useState(0)
+  const [updateMessage, setUpdateMessage] = useState("")
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [downloads, setDownloads] = useState<DownloadItem[]>([])
   const [mode, setMode] = useState<DownloadMode>("audio")
@@ -122,6 +132,7 @@ function App() {
       .catch(() => setSettings(defaultSettings))
     loadHistory().then(setHistory).catch(() => setHistory([]))
     refreshToolStatus()
+    getVersion().then(setAppVersion).catch(() => setAppVersion(""))
   }, [])
 
   useEffect(() => {
@@ -277,6 +288,56 @@ function App() {
       toast.error(readableError(err))
     } finally {
       setToolsInstalling(false)
+    }
+  }
+
+  async function handleCheckForUpdate() {
+    setUpdateChecking(true)
+    setUpdateProgress(0)
+    setUpdateMessage("")
+    try {
+      const update = await check({ timeout: 30000 })
+      setAvailableUpdate(update)
+      setUpdateMessage(update ? `Version ${update.version} is available.` : "Unmuze is up to date.")
+    } catch (err) {
+      setAvailableUpdate(null)
+      setUpdateMessage(readableError(err))
+      toast.error("Update check failed.")
+    } finally {
+      setUpdateChecking(false)
+    }
+  }
+
+  async function handleInstallUpdate() {
+    if (!availableUpdate) return
+    setUpdateInstalling(true)
+    setUpdateProgress(0)
+    setUpdateMessage(`Downloading Unmuze ${availableUpdate.version}.`)
+    let downloaded = 0
+    let contentLength = 0
+    try {
+      await availableUpdate.downloadAndInstall((event) => {
+        if (event.event === "Started") {
+          downloaded = 0
+          contentLength = event.data.contentLength || 0
+          setUpdateProgress(0)
+          setUpdateMessage("Downloading update.")
+        }
+        if (event.event === "Progress") {
+          downloaded += event.data.chunkLength
+          if (contentLength > 0) setUpdateProgress(Math.round((downloaded / contentLength) * 100))
+        }
+        if (event.event === "Finished") {
+          setUpdateProgress(100)
+          setUpdateMessage("Update installed. Restarting Unmuze.")
+        }
+      })
+      await relaunch()
+    } catch (err) {
+      setUpdateMessage(readableError(err))
+      toast.error("Update install failed.")
+    } finally {
+      setUpdateInstalling(false)
     }
   }
 
@@ -540,9 +601,17 @@ function App() {
                   toolStatus={toolStatus}
                   toolsLoading={toolsLoading}
                   toolsInstalling={toolsInstalling}
+                  appVersion={appVersion}
+                  updateChecking={updateChecking}
+                  updateInstalling={updateInstalling}
+                  availableUpdate={availableUpdate}
+                  updateProgress={updateProgress}
+                  updateMessage={updateMessage}
                   onSave={handleSaveSettings}
                   onRefreshTools={refreshToolStatus}
                   onInstallTools={handleInstallManagedTools}
+                  onCheckForUpdate={handleCheckForUpdate}
+                  onInstallUpdate={handleInstallUpdate}
                 />
               </TabsContent>
               <TabsContent value="help">
@@ -1026,17 +1095,33 @@ function SettingsScreen({
   toolStatus,
   toolsLoading,
   toolsInstalling,
+  appVersion,
+  updateChecking,
+  updateInstalling,
+  availableUpdate,
+  updateProgress,
+  updateMessage,
   onSave,
   onRefreshTools,
   onInstallTools,
+  onCheckForUpdate,
+  onInstallUpdate,
 }: {
   settings: Settings
   toolStatus: ToolStatus | null
   toolsLoading: boolean
   toolsInstalling: boolean
+  appVersion: string
+  updateChecking: boolean
+  updateInstalling: boolean
+  availableUpdate: Update | null
+  updateProgress: number
+  updateMessage: string
   onSave: (settings: Settings) => void
   onRefreshTools: () => void
   onInstallTools: () => void
+  onCheckForUpdate: () => void
+  onInstallUpdate: () => void
 }) {
   const managedToolsInstalled = Boolean(toolStatus?.ytDlp.managedInstalled && toolStatus?.ffmpeg.managedInstalled)
   return (
@@ -1076,6 +1161,38 @@ function SettingsScreen({
               </div>
               <Switch checked={settings.keepHistory} onCheckedChange={(checked) => onSave({ ...settings, keepHistory: checked })} />
             </div>
+          </FieldGroup>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>App updates</CardTitle>
+          <CardDescription>Check GitHub Releases and install signed updates from inside Unmuze.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            <div className="rounded-md border p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <FieldLabel>Current version</FieldLabel>
+                  <FieldDescription>{appVersion ? `Unmuze ${appVersion}` : "Version unavailable in browser preview."}</FieldDescription>
+                </div>
+                <Badge variant={availableUpdate ? "default" : "outline"}>{availableUpdate ? `Update ${availableUpdate.version}` : "Stable"}</Badge>
+              </div>
+              {updateMessage ? <p className="mt-3 text-sm text-muted-foreground">{updateMessage}</p> : null}
+              {updateInstalling ? <Progress className="mt-3" value={updateProgress} /> : null}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={onCheckForUpdate} disabled={updateChecking || updateInstalling}>
+                {updateChecking ? <Spinner /> : <RefreshCwIcon data-icon="inline-start" />}
+                Check for updates
+              </Button>
+              <Button onClick={onInstallUpdate} disabled={!availableUpdate || updateChecking || updateInstalling}>
+                {updateInstalling ? <Spinner /> : <DownloadIcon data-icon="inline-start" />}
+                Install update
+              </Button>
+            </div>
+            <FieldDescription>Updates are verified with Tauri signatures before installation.</FieldDescription>
           </FieldGroup>
         </CardContent>
       </Card>

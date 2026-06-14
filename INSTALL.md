@@ -26,10 +26,14 @@ Unmuze stores settings, history, and optional managed media tools in your local 
 
 Open Settings and select **Install managed tools** if Unmuze reports missing media tools. The app downloads pinned copies of `yt-dlp` and FFmpeg, verifies their SHA-256 checksums, and uses them before system PATH tools.
 
+Use **Check for updates** in Settings to install newer signed Unmuze releases from inside the app.
+
 ## Common Issues
 
 - `yt-dlp is missing or unavailable`: open Settings and install managed tools, or install `yt-dlp` manually and restart the app.
 - `FFmpeg is missing or unavailable`: open Settings and install managed tools, or install FFmpeg manually and confirm it is on `PATH`.
 - `Managed tool failed verification`: the downloaded file did not match the pinned checksum. Try again later.
+- `Update check failed`: confirm you can reach GitHub Releases and try again later.
+- `Update install failed`: restart Unmuze and try again. On Windows, the installer may close the app while applying an update.
 - `URL requires login or protected access`: Unmuze will not bypass protected access.
 - Spotify cannot download: this is expected; Spotify does not expose downloadable files for this app.
