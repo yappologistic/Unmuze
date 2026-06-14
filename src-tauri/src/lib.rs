@@ -43,6 +43,12 @@ struct DownloadRequest {
     quality: String,
     output_dir: String,
     file_name: String,
+    #[serde(default)]
+    split_chapters: bool,
+    #[serde(default)]
+    save_subtitles: bool,
+    #[serde(default = "default_subtitle_language")]
+    subtitle_language: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -565,6 +571,10 @@ fn default_playlist_concurrency() -> u8 {
     2
 }
 
+fn default_subtitle_language() -> String {
+    "en".to_string()
+}
+
 fn normalize_settings(mut settings: Settings) -> Settings {
     settings.playlist_concurrency = settings.playlist_concurrency.clamp(1, 3);
     settings
@@ -1002,6 +1012,54 @@ fn append_video_preset_args(args: &mut Vec<String>, preset: &str) {
     ]);
 }
 
+fn chapter_template_for(output_path: &Path) -> String {
+    let parent = output_path.parent().unwrap_or_else(|| Path::new(""));
+    let stem = output_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("download");
+    parent
+        .join(format!(
+            "{stem} - %(section_number)02d - %(section_title)s.%(ext)s"
+        ))
+        .to_string_lossy()
+        .to_string()
+}
+
+fn append_chapter_args(args: &mut Vec<String>, output_path: &Path) {
+    args.extend([
+        "--split-chapters".to_string(),
+        "-o".to_string(),
+        format!("chapter:{}", chapter_template_for(output_path)),
+    ]);
+}
+
+fn sanitize_subtitle_language(input: &str) -> String {
+    let cleaned: String = input
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ',' | '*'))
+        .take(48)
+        .collect();
+    if cleaned.is_empty() {
+        default_subtitle_language()
+    } else {
+        cleaned
+    }
+}
+
+fn append_subtitle_args(args: &mut Vec<String>, language: &str) {
+    args.extend([
+        "--write-subs".to_string(),
+        "--write-auto-subs".to_string(),
+        "--sub-langs".to_string(),
+        sanitize_subtitle_language(language),
+        "--sub-format".to_string(),
+        "srt/best".to_string(),
+        "--convert-subs".to_string(),
+        "srt".to_string(),
+    ]);
+}
+
 #[tauri::command]
 fn start_download(
     app: AppHandle,
@@ -1040,6 +1098,12 @@ fn start_download(
         args.extend(["--ffmpeg-location".to_string(), ffmpeg_location]);
     }
     append_metadata_args(&mut args);
+    if request.split_chapters {
+        append_chapter_args(&mut args, &output_path);
+    }
+    if request.save_subtitles && request.mode == "video" {
+        append_subtitle_args(&mut args, &request.subtitle_language);
+    }
     if request.mode == "audio" {
         append_audio_preset_args(&mut args, &request.quality);
     } else {
@@ -1188,10 +1252,12 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_audio_preset_args, append_metadata_args, append_video_preset_args, audio_extension,
-        detect_platform, normalize_settings, tool_asset, video_selector, Platform, Settings,
-        FFMPEG_VERSION, YT_DLP_VERSION,
+        append_audio_preset_args, append_chapter_args, append_metadata_args, append_subtitle_args,
+        append_video_preset_args, audio_extension, detect_platform, normalize_settings,
+        sanitize_subtitle_language, tool_asset, video_selector, Platform, Settings, FFMPEG_VERSION,
+        YT_DLP_VERSION,
     };
+    use std::path::Path;
 
     #[test]
     fn detects_soundcloud_hosts_for_ytdlp_path() {
@@ -1283,5 +1349,32 @@ mod tests {
             keep_history: true,
         });
         assert_eq!(normalized.playlist_concurrency, 3);
+    }
+
+    #[test]
+    fn adds_chapter_split_output_template() {
+        let mut args = vec![];
+        append_chapter_args(&mut args, Path::new("C:/Downloads/Lecture.mp3"));
+        assert!(args.contains(&"--split-chapters".to_string()));
+        assert!(args
+            .iter()
+            .any(|value| value.starts_with("chapter:") && value.contains("%(section_title)s")));
+    }
+
+    #[test]
+    fn adds_subtitle_sidecar_args_with_sanitized_language() {
+        assert_eq!(sanitize_subtitle_language("en,fa.*; rm"), "en,fa.*rm");
+        assert_eq!(sanitize_subtitle_language(""), "en");
+
+        let mut args = vec![];
+        append_subtitle_args(&mut args, "en.*");
+        assert!(args.contains(&"--write-subs".to_string()));
+        assert!(args.contains(&"--write-auto-subs".to_string()));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--sub-langs" && pair[1] == "en.*"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "--convert-subs" && pair[1] == "srt"));
     }
 }

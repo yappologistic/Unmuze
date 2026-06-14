@@ -18,6 +18,8 @@ The app is local-first. It does not require an account, does not use a cloud bac
 - Runs playlist downloads concurrently with a configurable limit of 1, 2, or 3 items at a time.
 - Provides simple **Best** and **Balanced** presets plus explicit MP3, M4A, Opus, WAV, MP4 best, MP4 1080p, and MP4 720p choices.
 - Embeds title, uploader/artist metadata, source URL, and thumbnail artwork when the selected output format supports it.
+- Can split chaptered videos, podcasts, lectures, or albums into separate files by chapter.
+- Can save manual subtitles or auto-generated captions as SRT sidecar files for video downloads.
 - Shows progress, cancellation, completed downloads, and local history.
 - Supports light, dark, and system theme settings.
 - Checks for signed app updates from inside Settings.

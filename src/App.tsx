@@ -21,6 +21,8 @@ import {
   RefreshCwIcon,
   WrenchIcon,
   VideoIcon,
+  ScissorsIcon,
+  CaptionsIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -109,6 +111,9 @@ function App() {
   const [downloads, setDownloads] = useState<DownloadItem[]>([])
   const [mode, setMode] = useState<DownloadMode>("audio")
   const [quality, setQuality] = useState<DownloadPreset>("best")
+  const [splitChapters, setSplitChapters] = useState(false)
+  const [saveSubtitles, setSaveSubtitles] = useState(false)
+  const [subtitleLanguage, setSubtitleLanguage] = useState("en")
   const [outputDir, setOutputDir] = useState("")
   const [fileName, setFileName] = useState("")
   const [playlistUrl, setPlaylistUrl] = useState("")
@@ -117,6 +122,9 @@ function App() {
   const [playlistError, setPlaylistError] = useState("")
   const [playlistMode, setPlaylistMode] = useState<DownloadMode>("audio")
   const [playlistQuality, setPlaylistQuality] = useState<DownloadPreset>("best")
+  const [playlistSplitChapters, setPlaylistSplitChapters] = useState(false)
+  const [playlistSaveSubtitles, setPlaylistSaveSubtitles] = useState(false)
+  const [playlistSubtitleLanguage, setPlaylistSubtitleLanguage] = useState("en")
   const [playlistOutputDir, setPlaylistOutputDir] = useState("")
   const [selectedPlaylistIds, setSelectedPlaylistIds] = useState<Set<string>>(new Set())
   const playlistQueueRef = useRef<PendingDownload[]>([])
@@ -261,6 +269,7 @@ function App() {
       const nextMode = result.formats.includes(settings.defaultFormat) ? settings.defaultFormat : "audio"
       setMode(nextMode)
       setQuality(normalizePresetForMode(settings.defaultQuality, nextMode))
+      if (nextMode === "audio") setSaveSubtitles(false)
       setFileName(sanitizeFilename(result.suggestedFileName || result.title || "download"))
       if (!result.downloadable && result.limitation) {
         setError(result.limitation)
@@ -380,6 +389,7 @@ function App() {
       const nextMode = result.platform === "soundCloud" ? "audio" : settings.defaultFormat
       setPlaylistMode(nextMode)
       setPlaylistQuality(normalizePresetForMode(settings.defaultQuality, nextMode))
+      if (nextMode === "audio") setPlaylistSaveSubtitles(false)
       if (result.downloadable) {
         setSelectedPlaylistIds(new Set(result.entries.map(playlistEntryKey)))
       }
@@ -438,6 +448,9 @@ function App() {
         status: "waiting",
         progress: 0,
         message: "Waiting in playlist queue.",
+        splitChapters: playlistSplitChapters,
+        saveSubtitles: playlistMode === "video" && playlistSaveSubtitles,
+        subtitleLanguage: playlistSubtitleLanguage,
         playlistTitle,
         playlistIndex: position + 1,
         playlistTotal: total,
@@ -451,6 +464,9 @@ function App() {
           quality: playlistQuality,
           outputDir: playlistOutputDir,
           fileName: numberedName,
+          splitChapters: playlistSplitChapters,
+          saveSubtitles: playlistMode === "video" && playlistSaveSubtitles,
+          subtitleLanguage: playlistSubtitleLanguage,
         },
       }
       return { item, request }
@@ -483,6 +499,9 @@ function App() {
       status: "downloading",
       progress: 0,
       message: "Starting download.",
+      splitChapters,
+      saveSubtitles: mode === "video" && saveSubtitles,
+      subtitleLanguage,
     }
     setDownloads((items) => [item, ...items])
     try {
@@ -493,6 +512,9 @@ function App() {
         quality,
         outputDir,
         fileName: item.fileName,
+        splitChapters,
+        saveSubtitles: mode === "video" && saveSubtitles,
+        subtitleLanguage,
       })
       setDownloads((items) => items.map((download) => (download.id === id ? { ...download, path } : download)))
       toast.success("Download started.")
@@ -568,6 +590,12 @@ function App() {
                   setMode={setMode}
                   quality={quality}
                   setQuality={setQuality}
+                  splitChapters={splitChapters}
+                  setSplitChapters={setSplitChapters}
+                  saveSubtitles={saveSubtitles}
+                  setSaveSubtitles={setSaveSubtitles}
+                  subtitleLanguage={subtitleLanguage}
+                  setSubtitleLanguage={setSubtitleLanguage}
                   outputDir={outputDir}
                   setOutputDir={setOutputDir}
                   fileName={fileName}
@@ -596,6 +624,12 @@ function App() {
                   quality={playlistQuality}
                   setQuality={setPlaylistQuality}
                   concurrency={playlistConcurrency}
+                  splitChapters={playlistSplitChapters}
+                  setSplitChapters={setPlaylistSplitChapters}
+                  saveSubtitles={playlistSaveSubtitles}
+                  setSaveSubtitles={setPlaylistSaveSubtitles}
+                  subtitleLanguage={playlistSubtitleLanguage}
+                  setSubtitleLanguage={setPlaylistSubtitleLanguage}
                   outputDir={playlistOutputDir}
                   setOutputDir={setPlaylistOutputDir}
                   downloads={downloads}
@@ -654,6 +688,12 @@ function DownloadScreen(props: {
   setMode: (value: DownloadMode) => void
   quality: DownloadPreset
   setQuality: (value: DownloadPreset) => void
+  splitChapters: boolean
+  setSplitChapters: (value: boolean) => void
+  saveSubtitles: boolean
+  setSaveSubtitles: (value: boolean) => void
+  subtitleLanguage: string
+  setSubtitleLanguage: (value: string) => void
   outputDir: string
   setOutputDir: (value: string) => void
   fileName: string
@@ -666,11 +706,13 @@ function DownloadScreen(props: {
   onOpenSettings: () => void
 }) {
   const canDownload = Boolean(props.inspection?.downloadable && !props.checking)
+  const canSaveSubtitles = canDownload && props.mode === "video"
   const presetOptions = presetOptionsForMode(props.mode)
   const selectedPreset = presetDetails(props.quality, props.mode)
   const changeMode = (nextMode: DownloadMode) => {
     props.setMode(nextMode)
     props.setQuality(normalizePresetForMode(props.quality, nextMode))
+    if (nextMode === "audio") props.setSaveSubtitles(false)
   }
   return (
     <div className="flex flex-col gap-5">
@@ -755,6 +797,16 @@ function DownloadScreen(props: {
                 <Input id="file-name" value={props.fileName} onChange={(event) => props.setFileName(sanitizeFilename(event.target.value))} placeholder="download" disabled={!canDownload} />
                 <FieldDescription>Estimated type: {estimatedFileType(props.quality, props.mode)}. Metadata and artwork are embedded when supported.</FieldDescription>
               </Field>
+              <DownloadAdvancedOptions
+                canDownload={canDownload}
+                canSaveSubtitles={canSaveSubtitles}
+                splitChapters={props.splitChapters}
+                setSplitChapters={props.setSplitChapters}
+                saveSubtitles={props.saveSubtitles}
+                setSaveSubtitles={props.setSaveSubtitles}
+                subtitleLanguage={props.subtitleLanguage}
+                setSubtitleLanguage={props.setSubtitleLanguage}
+              />
               <Button onClick={props.onStartDownload} disabled={!canDownload}>
                 <DownloadIcon data-icon="inline-start" />
                 Save locally
@@ -783,6 +835,12 @@ function PlaylistScreen(props: {
   quality: DownloadPreset
   setQuality: (value: DownloadPreset) => void
   concurrency: number
+  splitChapters: boolean
+  setSplitChapters: (value: boolean) => void
+  saveSubtitles: boolean
+  setSaveSubtitles: (value: boolean) => void
+  subtitleLanguage: string
+  setSubtitleLanguage: (value: string) => void
   outputDir: string
   setOutputDir: (value: string) => void
   downloads: DownloadItem[]
@@ -796,11 +854,13 @@ function PlaylistScreen(props: {
 }) {
   const canDownload = Boolean(props.inspection?.downloadable && props.selectedIds.size > 0 && !props.checking)
   const canUseVideo = props.inspection?.platform === "youTube"
+  const canSaveSubtitles = Boolean(props.inspection?.downloadable && props.mode === "video")
   const presetOptions = presetOptionsForMode(props.mode)
   const selectedPreset = presetDetails(props.quality, props.mode)
   const changeMode = (nextMode: DownloadMode) => {
     props.setMode(nextMode)
     props.setQuality(normalizePresetForMode(props.quality, nextMode))
+    if (nextMode === "audio") props.setSaveSubtitles(false)
   }
   const playlistHint = props.url.trim()
     ? props.validationMessage || (!isLikelyPlaylistUrl(props.url) ? `Detected: ${platformLabel(props.platform)}. This may be a single item URL.` : `Detected: ${platformLabel(props.platform)}`)
@@ -885,6 +945,16 @@ function PlaylistScreen(props: {
                   <Button variant="outline" size="icon" onClick={props.onChooseFolder} aria-label="Choose folder"><FolderIcon /></Button>
                 </div>
               </Field>
+              <DownloadAdvancedOptions
+                canDownload={Boolean(props.inspection?.downloadable)}
+                canSaveSubtitles={canSaveSubtitles}
+                splitChapters={props.splitChapters}
+                setSplitChapters={props.setSplitChapters}
+                saveSubtitles={props.saveSubtitles}
+                setSaveSubtitles={props.setSaveSubtitles}
+                subtitleLanguage={props.subtitleLanguage}
+                setSubtitleLanguage={props.setSubtitleLanguage}
+              />
               <Button onClick={props.onStartDownload} disabled={!canDownload}>
                 <DownloadIcon data-icon="inline-start" />
                 Save selected items
@@ -931,6 +1001,59 @@ function PlaylistProgressSummary({ downloads }: { downloads: DownloadItem[] }) {
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+const subtitleLanguageOptions = [
+  { value: "en", label: "English" },
+  { value: "en.*", label: "English variants" },
+  { value: "fa", label: "Persian" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "de", label: "German" },
+  { value: "ar", label: "Arabic" },
+  { value: "all", label: "All available" },
+]
+
+function DownloadAdvancedOptions(props: {
+  canDownload: boolean
+  canSaveSubtitles: boolean
+  splitChapters: boolean
+  setSplitChapters: (value: boolean) => void
+  saveSubtitles: boolean
+  setSaveSubtitles: (value: boolean) => void
+  subtitleLanguage: string
+  setSubtitleLanguage: (value: string) => void
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-md border p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <FieldLabel><ScissorsIcon data-icon="inline-start" />Split chapters</FieldLabel>
+          <FieldDescription>Creates separate files for chapter markers when the source provides them.</FieldDescription>
+        </div>
+        <Switch checked={props.splitChapters} onCheckedChange={props.setSplitChapters} disabled={!props.canDownload} />
+      </div>
+      <Separator />
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <FieldLabel><CaptionsIcon data-icon="inline-start" />Save subtitles</FieldLabel>
+          <FieldDescription>Saves manual subtitles or auto captions as SRT sidecar files for video downloads.</FieldDescription>
+        </div>
+        <Switch checked={props.saveSubtitles && props.canSaveSubtitles} onCheckedChange={props.setSaveSubtitles} disabled={!props.canSaveSubtitles} />
+      </div>
+      <Field>
+        <FieldLabel>Subtitle language</FieldLabel>
+        <Select value={props.subtitleLanguage} onValueChange={props.setSubtitleLanguage} disabled={!props.canSaveSubtitles || !props.saveSubtitles}>
+          <SelectGroup>
+            {subtitleLanguageOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+            ))}
+          </SelectGroup>
+        </Select>
+        <FieldDescription>Only applies when subtitles are enabled.</FieldDescription>
+      </Field>
+    </div>
   )
 }
 
@@ -1057,6 +1180,8 @@ function DownloadManager({ downloads, onCancel }: { downloads: DownloadItem[]; o
                     <div className="flex items-center gap-2">
                       <Badge variant={item.status === "completed" ? "default" : item.status === "failed" ? "destructive" : "secondary"}>{item.status}</Badge>
                       {item.playlistIndex && item.playlistTotal ? <Badge variant="outline">{item.playlistIndex} of {item.playlistTotal}</Badge> : null}
+                      {item.splitChapters ? <Badge variant="outline">Chapters</Badge> : null}
+                      {item.saveSubtitles ? <Badge variant="outline">Subs {item.subtitleLanguage || "en"}</Badge> : null}
                       <span className="truncate font-medium">{item.title}</span>
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">{item.playlistTitle ? `${item.playlistTitle} · ` : ""}{item.message}</p>

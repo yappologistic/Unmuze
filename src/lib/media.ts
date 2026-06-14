@@ -100,6 +100,9 @@ export type DownloadItem = {
   status: DownloadStatus
   progress: number
   message: string
+  splitChapters?: boolean
+  saveSubtitles?: boolean
+  subtitleLanguage?: string
   path?: string
   playlistTitle?: string
   playlistIndex?: number
