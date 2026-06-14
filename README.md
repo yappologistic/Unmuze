@@ -10,7 +10,7 @@ The app is local-first. It does not require an account, does not use a cloud bac
 
 ## What It Does
 
-- Accepts public YouTube and SoundCloud URLs, including YouTube playlists and SoundCloud sets in Playlist mode.
+- Accepts public YouTube, SoundCloud, and individual TikTok video URLs, including YouTube playlists and SoundCloud sets in Playlist mode.
 - Detects the platform automatically.
 - Shows available metadata when local tooling can inspect the URL.
 - Installs checksum-verified managed copies of `yt-dlp` and FFmpeg into the local app data folder.
@@ -38,6 +38,8 @@ The app is local-first. It does not require an account, does not use a cloud bac
 | YouTube public playlists | Yes, with per-item selection | Yes, selected public items only when legally permitted |
 | SoundCloud public URLs | Yes, when local tools can access metadata | Yes, only when legally permitted |
 | SoundCloud public sets | Yes, with per-item selection | Yes, selected public audio items only when legally permitted |
+| TikTok public video URLs | Yes, when local tools can access metadata | Yes, individual public videos only when legally permitted |
+| TikTok profiles/playlists | Unsupported message | No |
 | Spotify | Protected-platform explanation only | No |
 | Other sites | Unsupported message | No |
 

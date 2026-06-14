@@ -8,7 +8,9 @@ import {
   estimatedFileType,
   isPresetAllowedForMode,
   isLikelyPlaylistUrl,
+  isLikelyTikTokVideoUrl,
   normalizePresetForMode,
+  platformLabel,
   presetDetails,
   sanitizeFilename,
   validateMediaUrl,
@@ -22,6 +24,9 @@ describe("media URL handling", () => {
     expect(detectPlatform("https://soundcloud.com/artist/track")).toBe("soundCloud")
     expect(detectPlatform("https://m.soundcloud.com/artist/track")).toBe("soundCloud")
     expect(detectPlatform("https://on.soundcloud.com/abc123")).toBe("soundCloud")
+    expect(detectPlatform("https://www.tiktok.com/@artist/video/1234567890")).toBe("tikTok")
+    expect(detectPlatform("https://m.tiktok.com/v/1234567890.html")).toBe("tikTok")
+    expect(detectPlatform("https://vm.tiktok.com/ZMabc123/")).toBe("tikTok")
     expect(detectPlatform("https://open.spotify.com/track/abc")).toBe("spotify")
     expect(detectPlatform("https://example.com/file.mp4")).toBe("unsupported")
   })
@@ -29,6 +34,9 @@ describe("media URL handling", () => {
   it("validates supported public URL shapes", () => {
     expect(validateMediaUrl("https://youtu.be/abc").valid).toBe(true)
     expect(validateMediaUrl("https://on.soundcloud.com/abc123").valid).toBe(true)
+    expect(validateMediaUrl("https://www.tiktok.com/@artist/video/1234567890").valid).toBe(true)
+    expect(validateMediaUrl("https://vm.tiktok.com/ZMabc123/").valid).toBe(true)
+    expect(validateMediaUrl("https://www.tiktok.com/@artist").valid).toBe(false)
     expect(validateMediaUrl("ftp://youtu.be/abc").valid).toBe(false)
     expect(validateMediaUrl("not a url").valid).toBe(false)
     expect(validateMediaUrl("https://example.com/video").valid).toBe(false)
@@ -39,6 +47,21 @@ describe("media URL handling", () => {
     expect(isLikelyPlaylistUrl("https://www.youtube.com/watch?v=abc&list=PL123")).toBe(true)
     expect(isLikelyPlaylistUrl("https://soundcloud.com/artist/sets/mix")).toBe(true)
     expect(isLikelyPlaylistUrl("https://youtu.be/abc")).toBe(false)
+    expect(isLikelyPlaylistUrl("https://www.tiktok.com/@artist/video/1234567890")).toBe(false)
+  })
+
+  it("detects individual TikTok video URL shapes", () => {
+    expect(isLikelyTikTokVideoUrl("https://www.tiktok.com/@artist/video/1234567890")).toBe(true)
+    expect(isLikelyTikTokVideoUrl("https://m.tiktok.com/v/1234567890.html")).toBe(true)
+    expect(isLikelyTikTokVideoUrl("https://vm.tiktok.com/ZMabc123/")).toBe(true)
+    expect(isLikelyTikTokVideoUrl("https://www.tiktok.com/@artist")).toBe(false)
+  })
+
+  it("labels supported platforms for the UI", () => {
+    expect(platformLabel("youTube")).toBe("YouTube")
+    expect(platformLabel("soundCloud")).toBe("SoundCloud")
+    expect(platformLabel("tikTok")).toBe("TikTok")
+    expect(platformLabel("spotify")).toBe("Spotify")
   })
 })
 

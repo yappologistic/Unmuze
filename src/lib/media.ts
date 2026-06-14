@@ -1,4 +1,4 @@
-export type Platform = "youTube" | "soundCloud" | "spotify" | "unsupported"
+export type Platform = "youTube" | "soundCloud" | "tikTok" | "spotify" | "unsupported"
 export type DownloadMode = "audio" | "video"
 export type DownloadPreset =
   | "best"
@@ -173,14 +173,29 @@ export function detectPlatform(rawUrl: string): Platform {
     const hostname = new URL(rawUrl.trim()).hostname.toLowerCase().replace(/^www\./, "")
     if (hostname === "youtube.com" || hostname.endsWith(".youtube.com") || hostname === "youtu.be") return "youTube"
     if (hostname === "soundcloud.com" || hostname.endsWith(".soundcloud.com")) return "soundCloud"
+    if (hostname === "tiktok.com" || hostname.endsWith(".tiktok.com")) return "tikTok"
     if (hostname === "spotify.com" || hostname.endsWith(".spotify.com")) return "spotify"
     return "unsupported"
   } catch {
     const value = rawUrl.toLowerCase()
     if (value.includes("youtube.com/") || value.includes("youtu.be/")) return "youTube"
     if (value.includes("soundcloud.com/")) return "soundCloud"
+    if (value.includes("tiktok.com/")) return "tikTok"
     if (value.includes("spotify.com/")) return "spotify"
     return "unsupported"
+  }
+}
+
+export function isLikelyTikTokVideoUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl.trim())
+    const hostname = url.hostname.toLowerCase().replace(/^www\./, "")
+    if (!(hostname === "tiktok.com" || hostname.endsWith(".tiktok.com"))) return false
+    const path = url.pathname.toLowerCase()
+    if (hostname === "vm.tiktok.com" || hostname === "vt.tiktok.com") return path.length > 1
+    return path.includes("/video/") || path.startsWith("/v/") || path.startsWith("/t/")
+  } catch {
+    return false
   }
 }
 
@@ -190,8 +205,12 @@ export function validateMediaUrl(rawUrl: string): { valid: true; url: URL } | { 
     if (!["http:", "https:"].includes(url.protocol)) {
       return { valid: false, message: "Paste a URL that starts with https:// or http://." }
     }
-    if (detectPlatform(url.toString()) === "unsupported") {
-      return { valid: false, message: "This app currently supports permitted public YouTube and SoundCloud URLs." }
+    const platform = detectPlatform(url.toString())
+    if (platform === "unsupported") {
+      return { valid: false, message: "This app currently supports permitted public YouTube, SoundCloud, and TikTok URLs." }
+    }
+    if (platform === "tikTok" && !isLikelyTikTokVideoUrl(url.toString())) {
+      return { valid: false, message: "Paste an individual public TikTok video URL, not a profile or playlist." }
     }
     return { valid: true, url }
   } catch {
@@ -248,9 +267,11 @@ export function platformLabel(platform: Platform) {
     ? "YouTube"
     : platform === "soundCloud"
       ? "SoundCloud"
-      : platform === "spotify"
-        ? "Spotify"
-        : "Unsupported"
+      : platform === "tikTok"
+        ? "TikTok"
+        : platform === "spotify"
+          ? "Spotify"
+          : "Unsupported"
 }
 
 export function formatDuration(seconds?: number | null) {

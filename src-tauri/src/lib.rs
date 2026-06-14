@@ -24,6 +24,7 @@ struct DownloadRegistry(Mutex<HashMap<String, Arc<Mutex<Child>>>>);
 enum Platform {
     YouTube,
     SoundCloud,
+    TikTok,
     Spotify,
     Unsupported,
 }
@@ -479,11 +480,50 @@ fn detect_platform(url: &str) -> Platform {
         Platform::YouTube
     } else if host == "soundcloud.com" || host.ends_with(".soundcloud.com") {
         Platform::SoundCloud
+    } else if host == "tiktok.com" || host.ends_with(".tiktok.com") {
+        Platform::TikTok
     } else if host == "spotify.com" || host.ends_with(".spotify.com") {
         Platform::Spotify
     } else {
         Platform::Unsupported
     }
+}
+
+fn is_tiktok_video_url(url: &str) -> bool {
+    let lower = url.trim().to_ascii_lowercase();
+    let Some(rest) = lower.split("://").nth(1) else {
+        return false;
+    };
+    let host = rest
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .strip_prefix("www.")
+        .unwrap_or_else(|| rest.split('/').next().unwrap_or(""));
+    if !(host == "tiktok.com" || host.ends_with(".tiktok.com")) {
+        return false;
+    }
+    let path = rest
+        .split_once('/')
+        .map(|(_, path)| path)
+        .unwrap_or("")
+        .split(['?', '#'])
+        .next()
+        .unwrap_or("");
+    if path.is_empty() {
+        return false;
+    }
+    if host == "vm.tiktok.com" || host == "vt.tiktok.com" {
+        return true;
+    }
+    path.contains("/video/") || path.starts_with("v/") || path.starts_with("t/")
+}
+
+fn is_download_platform(platform: &Platform) -> bool {
+    matches!(
+        platform,
+        Platform::YouTube | Platform::SoundCloud | Platform::TikTok
+    )
 }
 
 fn validate_public_url(url: &str) -> AppResult<()> {
@@ -685,10 +725,23 @@ fn inspect_media(app: AppHandle, request: InspectRequest) -> AppResult<Inspectio
             duration: None,
             thumbnail: None,
             formats: vec![],
-            limitation: Some("This app currently supports permitted public YouTube and SoundCloud URLs only.".to_string()),
+            limitation: Some("This app currently supports permitted public YouTube, SoundCloud, and TikTok URLs only.".to_string()),
             suggested_file_name: None,
         }),
-        Platform::YouTube | Platform::SoundCloud => inspect_with_ytdlp(&app, &request.url, platform),
+        Platform::TikTok if !is_tiktok_video_url(&request.url) => Ok(Inspection {
+            platform,
+            downloadable: false,
+            title: None,
+            creator: None,
+            duration: None,
+            thumbnail: None,
+            formats: vec![],
+            limitation: Some("Paste an individual public TikTok video URL, not a profile or playlist.".to_string()),
+            suggested_file_name: None,
+        }),
+        Platform::YouTube | Platform::SoundCloud | Platform::TikTok => {
+            inspect_with_ytdlp(&app, &request.url, platform)
+        }
     }
 }
 
@@ -712,6 +765,14 @@ fn inspect_playlist(app: AppHandle, request: InspectRequest) -> AppResult<Playli
             creator: None,
             entries: vec![],
             limitation: Some("Playlist mode currently supports permitted public YouTube and SoundCloud playlists only.".to_string()),
+        }),
+        Platform::TikTok => Ok(PlaylistInspection {
+            platform,
+            downloadable: false,
+            title: None,
+            creator: None,
+            entries: vec![],
+            limitation: Some("TikTok playlist and profile downloads are not supported. Use Download mode with an individual public TikTok video URL.".to_string()),
         }),
         Platform::YouTube | Platform::SoundCloud => inspect_playlist_with_ytdlp(&app, &request.url, platform),
     }
@@ -1068,10 +1129,16 @@ fn start_download(
 ) -> AppResult<String> {
     validate_public_url(&request.url)?;
     let platform = detect_platform(&request.url);
-    if !matches!(platform, Platform::YouTube | Platform::SoundCloud) {
+    if !is_download_platform(&platform) {
         return Err(user_error(
             "This URL cannot be downloaded by this app.",
-            "Use a permitted public YouTube or SoundCloud URL.",
+            "Use a permitted public YouTube, SoundCloud, or TikTok URL.",
+        ));
+    }
+    if matches!(platform, Platform::TikTok) && !is_tiktok_video_url(&request.url) {
+        return Err(user_error(
+            "This TikTok URL cannot be downloaded by this app.",
+            "Use an individual public TikTok video URL, not a profile or playlist.",
         ));
     }
     if matches!(platform, Platform::SoundCloud) && request.mode == "video" {
@@ -1253,9 +1320,9 @@ pub fn run() {
 mod tests {
     use super::{
         append_audio_preset_args, append_chapter_args, append_metadata_args, append_subtitle_args,
-        append_video_preset_args, audio_extension, detect_platform, normalize_settings,
-        sanitize_subtitle_language, tool_asset, video_selector, Platform, Settings, FFMPEG_VERSION,
-        YT_DLP_VERSION,
+        append_video_preset_args, audio_extension, detect_platform, is_download_platform,
+        is_tiktok_video_url, normalize_settings, sanitize_subtitle_language, tool_asset,
+        video_selector, Platform, Settings, FFMPEG_VERSION, YT_DLP_VERSION,
     };
     use std::path::Path;
 
@@ -1273,6 +1340,44 @@ mod tests {
             detect_platform("https://on.soundcloud.com/abc123"),
             Platform::SoundCloud
         );
+    }
+
+    #[test]
+    fn detects_tiktok_hosts_for_ytdlp_path() {
+        assert_eq!(
+            detect_platform("https://www.tiktok.com/@artist/video/1234567890"),
+            Platform::TikTok
+        );
+        assert_eq!(
+            detect_platform("https://m.tiktok.com/v/1234567890.html"),
+            Platform::TikTok
+        );
+        assert_eq!(
+            detect_platform("https://vm.tiktok.com/ZMabc123/"),
+            Platform::TikTok
+        );
+    }
+
+    #[test]
+    fn scopes_tiktok_support_to_individual_videos() {
+        assert!(is_tiktok_video_url(
+            "https://www.tiktok.com/@artist/video/1234567890"
+        ));
+        assert!(is_tiktok_video_url(
+            "https://m.tiktok.com/v/1234567890.html"
+        ));
+        assert!(is_tiktok_video_url("https://vm.tiktok.com/ZMabc123/"));
+        assert!(!is_tiktok_video_url("https://www.tiktok.com/@artist"));
+        assert!(!is_tiktok_video_url("https://www.tiktok.com/"));
+    }
+
+    #[test]
+    fn allows_tiktok_in_download_platform_allowlist() {
+        assert!(is_download_platform(&Platform::YouTube));
+        assert!(is_download_platform(&Platform::SoundCloud));
+        assert!(is_download_platform(&Platform::TikTok));
+        assert!(!is_download_platform(&Platform::Spotify));
+        assert!(!is_download_platform(&Platform::Unsupported));
     }
 
     #[test]

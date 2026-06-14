@@ -722,7 +722,7 @@ function DownloadScreen(props: {
     <div className="flex flex-col gap-5">
       <div>
         <h2 className="text-2xl font-semibold tracking-normal">Download permitted media</h2>
-        <p className="text-sm text-muted-foreground">Paste a public YouTube or SoundCloud URL, inspect it, then save audio or video when allowed.</p>
+        <p className="text-sm text-muted-foreground">Paste a public YouTube, SoundCloud, or TikTok URL, inspect it, then save audio or video when allowed.</p>
       </div>
       <Alert>
         <ShieldCheckIcon data-icon="inline-start" />
@@ -734,7 +734,7 @@ function DownloadScreen(props: {
         <Card>
           <CardHeader>
             <CardTitle>Media URL</CardTitle>
-            <CardDescription>Supported: permitted public YouTube and SoundCloud URLs. Spotify links are explained but not downloaded.</CardDescription>
+            <CardDescription>Supported: permitted public YouTube, SoundCloud, and individual TikTok video URLs. Spotify links are explained but not downloaded.</CardDescription>
           </CardHeader>
           <CardContent>
             <FieldGroup>
@@ -867,7 +867,7 @@ function PlaylistScreen(props: {
     if (nextMode === "audio") props.setSaveSubtitles(false)
   }
   const playlistHint = props.url.trim()
-    ? props.validationMessage || (!isLikelyPlaylistUrl(props.url) ? `Detected: ${platformLabel(props.platform)}. This may be a single item URL.` : `Detected: ${platformLabel(props.platform)}`)
+    ? props.validationMessage || (!isLikelyPlaylistUrl(props.url) ? `Detected: ${platformLabel(props.platform)}. Playlist mode supports YouTube playlists and SoundCloud sets only.` : `Detected: ${platformLabel(props.platform)}`)
     : "Paste a YouTube playlist or SoundCloud set URL to begin."
   const playlistDownloads = props.downloads.filter((item) => item.playlistTitle)
   return (
@@ -929,7 +929,15 @@ function PlaylistScreen(props: {
                     <VideoIcon data-icon="inline-start" />Video
                   </Button>
                 </div>
-                <FieldDescription>{props.inspection ? (canUseVideo ? "YouTube playlists can be saved as audio or video." : "SoundCloud playlists are audio only.") : "Video becomes available after inspecting a YouTube playlist."}</FieldDescription>
+                <FieldDescription>
+                  {props.inspection
+                    ? canUseVideo
+                      ? "YouTube playlists can be saved as audio or video."
+                      : props.inspection.platform === "soundCloud"
+                        ? "SoundCloud playlists are audio only."
+                        : "TikTok is supported in Download mode for individual public videos."
+                    : "Video becomes available after inspecting a YouTube playlist."}
+                </FieldDescription>
               </Field>
               <Field>
                 <FieldLabel>Preset</FieldLabel>
@@ -1488,7 +1496,7 @@ function HelpScreen() {
           <CardDescription>A local desktop tool for permitted public media saves.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 text-sm text-muted-foreground">
-          <p>Unmuze can install managed media tools locally, inspect supported public YouTube and SoundCloud URLs, and save audio or video where legally permitted.</p>
+          <p>Unmuze can install managed media tools locally, inspect supported public YouTube, SoundCloud, and TikTok URLs, and save audio or video where legally permitted.</p>
           <p>Playlist mode can save selected public items with a configurable concurrency limit, per-item progress, and cancellation.</p>
           <p>Audio and video presets cover common formats, and supported downloads can embed metadata, source URLs, and artwork.</p>
           <p>Advanced options can split chaptered sources into separate files and save available video subtitles as SRT sidecar files.</p>
