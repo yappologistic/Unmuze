@@ -144,6 +144,8 @@ jobs:
 
       - name: Verify updater artifacts were generated
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          test -f src-tauri/target/release/bundle/latest.json
           find src-tauri/target/release/bundle -name "*.sig" -print -quit | grep -q .
+          gh release view "${{ steps.release.outputs.tag }}" --json assets --jq '.assets[].name' | grep -qx "latest.json"
