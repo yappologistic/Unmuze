@@ -190,7 +190,7 @@ export function estimatedFileType(preset: DownloadPreset, mode: DownloadMode) {
 
 export function formatDetailsForMode(details: FormatDetail[] | undefined, mode: DownloadMode) {
   const rows = details || []
-  return rows.filter((detail) => (mode === "audio" ? detail.kind === "audio" || detail.kind === "muxed" : detail.kind === "video" || detail.kind === "muxed"))
+  return rows.filter((detail) => (mode === "audio" ? detail.kind === "audio" : detail.kind === "video" || detail.kind === "muxed"))
 }
 
 function compactParts(parts: Array<string | number | null | undefined>) {
@@ -210,9 +210,16 @@ export function formatBytes(bytes?: number | null) {
 }
 
 export function formatDetailLabel(detail: FormatDetail) {
-  const primary = detail.kind === "audio" ? detail.audioCodec : detail.resolution || (detail.height ? `${detail.height}p` : detail.videoCodec)
-  const secondary = compactParts([detail.ext?.toUpperCase(), detail.fps ? `${detail.fps} fps` : null, detail.totalBitrate ? `${Math.round(detail.totalBitrate)} kbps` : null])
-  return compactParts([detail.label || detail.id, primary, secondary.join(" · ")]).join(" — ")
+  const ext = detail.ext?.toUpperCase()
+  const bitrate = detail.totalBitrate ? `${Math.round(detail.totalBitrate)} kbps` : null
+  if (detail.kind === "audio") {
+    const codec = detail.audioCodec && detail.audioCodec !== "none" ? detail.audioCodec : null
+    const label = detail.label && detail.label.toLowerCase() !== "audio only" ? detail.label : codec || "Audio"
+    return compactParts([label, codec && codec !== label ? codec : null, ext, bitrate]).join(" · ")
+  }
+  const label = detail.label || detail.resolution || (detail.height ? `${detail.height}p` : detail.videoCodec) || detail.id
+  const resolution = detail.resolution && detail.resolution !== label ? detail.resolution : null
+  return compactParts([label, resolution, ext, detail.fps ? `${detail.fps} fps` : null, bitrate]).join(" · ")
 }
 
 export function formatDetailSummary(detail?: FormatDetail) {

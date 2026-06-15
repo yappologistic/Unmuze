@@ -148,15 +148,27 @@ describe("format details", () => {
       videoCodec: "avc1",
       totalBitrate: 4500,
     },
+    {
+      id: "18",
+      kind: "muxed" as const,
+      label: "360p",
+      ext: "mp4",
+      resolution: "640x360",
+      fps: 30,
+      videoCodec: "avc1",
+      audioCodec: "mp4a.40.2",
+      totalBitrate: 650,
+    },
   ]
 
   it("filters details by download mode", () => {
     expect(formatDetailsForMode(details, "audio").map((detail) => detail.id)).toEqual(["251"])
-    expect(formatDetailsForMode(details, "video").map((detail) => detail.id)).toEqual(["137"])
+    expect(formatDetailsForMode(details, "video").map((detail) => detail.id)).toEqual(["137", "18"])
   })
 
   it("builds readable labels and summaries", () => {
-    expect(formatDetailLabel(details[1])).toContain("1080p")
+    expect(formatDetailLabel(details[0])).toBe("opus · WEBM · 160 kbps")
+    expect(formatDetailLabel(details[1])).toBe("1080p · 1920x1080 · MP4 · 30 fps · 4500 kbps")
     expect(formatDetailSummary(details[0])).toContain("160 kbps audio")
     expect(formatDetailSummary(details[0])).toContain("2.0 MB")
   })
