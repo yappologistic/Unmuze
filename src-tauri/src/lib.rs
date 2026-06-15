@@ -10,6 +10,7 @@ use std::{
     thread,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
+use url::Url;
 
 const YT_DLP_VERSION: &str = "2026.06.09";
 const FFMPEG_VERSION: &str = "n8.0.1-1";
@@ -17,7 +18,12 @@ const FFMPEG_VERSION: &str = "n8.0.1-1";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Default)]
-struct DownloadRegistry(Mutex<HashMap<String, Arc<Mutex<Child>>>>);
+struct DownloadRegistry(Mutex<HashMap<String, Arc<Mutex<DownloadProcess>>>>);
+
+struct DownloadProcess {
+    child: Child,
+    cancelled: bool,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -322,8 +328,13 @@ fn managed_tool_path(app: &AppHandle, tool: &str) -> AppResult<Option<PathBuf>> 
     Ok(path.exists().then_some(path))
 }
 
+fn managed_tool_ready_path(app: &AppHandle, tool: &str) -> AppResult<Option<PathBuf>> {
+    let path = managed_tool_path(app, tool)?;
+    Ok(path.filter(|path| command_version(&path.to_string_lossy()).is_some()))
+}
+
 fn active_tool_path(app: &AppHandle, tool: &str) -> String {
-    managed_tool_path(app, tool)
+    managed_tool_ready_path(app, tool)
         .ok()
         .flatten()
         .map(|path| path.to_string_lossy().to_string())
@@ -331,7 +342,7 @@ fn active_tool_path(app: &AppHandle, tool: &str) -> String {
 }
 
 fn ffmpeg_location_arg(app: &AppHandle) -> Option<String> {
-    managed_tool_path(app, "ffmpeg")
+    managed_tool_ready_path(app, "ffmpeg")
         .ok()
         .flatten()
         .and_then(|path| {
@@ -360,14 +371,18 @@ fn command_version(command: &str) -> Option<String> {
 }
 
 fn tool_detail(app: &AppHandle, tool: &str, label: &str) -> AppResult<ToolDetail> {
-    let asset = tool_asset(tool)?;
-    let managed_path = managed_tool_path(app, tool)?;
+    let asset = tool_asset(tool).ok();
+    let asset_version = asset
+        .as_ref()
+        .map(|asset| asset.version.to_string())
+        .unwrap_or_else(|| "manual".to_string());
+    let managed_path = managed_tool_path(app, tool).unwrap_or(None);
     let managed_version = managed_path
         .as_ref()
         .and_then(|path| command_version(&path.to_string_lossy()));
     let system_command = format!("{tool}{}", executable_suffix());
     let system_version = command_version(&system_command);
-    let managed_installed = managed_path.is_some();
+    let managed_installed = managed_version.is_some();
     let system_installed = system_version.is_some();
     let ready = managed_installed || system_installed;
     let active_source = if managed_installed {
@@ -378,13 +393,14 @@ fn tool_detail(app: &AppHandle, tool: &str, label: &str) -> AppResult<ToolDetail
         "missing"
     };
     let message = match active_source {
-        "managed" => format!("Using managed {label} {}.", asset.version),
+        "managed" => format!("Using managed {label} {asset_version}."),
         "system" => format!("Using {label} from your system PATH."),
-        _ => format!("{label} is missing. Install managed tools from Settings."),
+        _ if asset.is_some() => format!("{label} is missing. Install managed tools from Settings."),
+        _ => format!("Managed {label} is not available for this platform. Install it manually and make sure it is on your PATH."),
     };
     Ok(ToolDetail {
         name: label.to_string(),
-        required_version: asset.version.to_string(),
+        required_version: asset_version,
         managed_installed,
         managed_version,
         managed_path: managed_path.map(|path| path.to_string_lossy().to_string()),
@@ -481,24 +497,21 @@ fn install_asset(app: &AppHandle, asset: ToolAsset) -> AppResult<()> {
         })?;
     }
     set_executable_permissions(&executable_path)?;
+    if command_version(&executable_path.to_string_lossy()).is_none() {
+        return Err(user_error(
+            "The managed tool could not be started after installation.",
+            "Try installing again, or install the tool manually and make sure it is on your PATH.",
+        ));
+    }
     Ok(())
 }
 
 fn detect_platform(url: &str) -> Platform {
-    let lower = url.trim().to_ascii_lowercase();
-    let host = lower
-        .split("://")
-        .nth(1)
-        .and_then(|rest| rest.split('/').next())
-        .unwrap_or("")
-        .strip_prefix("www.")
-        .unwrap_or_else(|| {
-            lower
-                .split("://")
-                .nth(1)
-                .and_then(|rest| rest.split('/').next())
-                .unwrap_or("")
-        });
+    let host = Url::parse(url.trim())
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(|host| host.to_ascii_lowercase()))
+        .map(|host| host.strip_prefix("www.").unwrap_or(&host).to_string())
+        .unwrap_or_default();
     if host == "youtube.com" || host.ends_with(".youtube.com") || host == "youtu.be" {
         Platform::YouTube
     } else if host == "soundcloud.com" || host.ends_with(".soundcloud.com") {
@@ -513,26 +526,15 @@ fn detect_platform(url: &str) -> Platform {
 }
 
 fn is_tiktok_video_url(url: &str) -> bool {
-    let lower = url.trim().to_ascii_lowercase();
-    let Some(rest) = lower.split("://").nth(1) else {
+    let Ok(parsed) = Url::parse(url.trim()) else {
         return false;
     };
-    let host = rest
-        .split('/')
-        .next()
-        .unwrap_or("")
-        .strip_prefix("www.")
-        .unwrap_or_else(|| rest.split('/').next().unwrap_or(""));
+    let raw_host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
+    let host = raw_host.strip_prefix("www.").unwrap_or(&raw_host);
     if !(host == "tiktok.com" || host.ends_with(".tiktok.com")) {
         return false;
     }
-    let path = rest
-        .split_once('/')
-        .map(|(_, path)| path)
-        .unwrap_or("")
-        .split(['?', '#'])
-        .next()
-        .unwrap_or("");
+    let path = parsed.path().trim_start_matches('/');
     if path.is_empty() {
         return false;
     }
@@ -550,7 +552,13 @@ fn is_download_platform(platform: &Platform) -> bool {
 }
 
 fn validate_public_url(url: &str) -> AppResult<()> {
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
+    let parsed = Url::parse(url.trim()).map_err(|_| {
+        user_error(
+            "Enter a complete media URL.",
+            "Paste a URL that starts with https:// or http://.",
+        )
+    })?;
+    if !matches!(parsed.scheme(), "https" | "http") || parsed.host_str().is_none() {
         return Err(user_error(
             "Enter a complete media URL.",
             "Paste a URL that starts with https:// or http://.",
@@ -1155,7 +1163,11 @@ fn append_metadata_args(args: &mut Vec<String>) {
     ]);
 }
 
-fn append_audio_preset_args(args: &mut Vec<String>, preset: &str, selected_format_id: Option<&str>) {
+fn append_audio_preset_args(
+    args: &mut Vec<String>,
+    preset: &str,
+    selected_format_id: Option<&str>,
+) {
     let (format, quality) = match preset {
         "balanced" => ("m4a", "5"),
         "audio-m4a" => ("m4a", "0"),
@@ -1214,7 +1226,11 @@ fn video_selector(preset: &str) -> &'static str {
     }
 }
 
-fn append_video_preset_args(args: &mut Vec<String>, preset: &str, selected_format_id: Option<&str>) {
+fn append_video_preset_args(
+    args: &mut Vec<String>,
+    preset: &str,
+    selected_format_id: Option<&str>,
+) {
     args.extend([
         "-f".to_string(),
         selected_video_selector(selected_format_id, preset),
@@ -1351,17 +1367,26 @@ fn start_download(
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
-    let child_ref = Arc::new(Mutex::new(child));
-    registry
-        .0
-        .lock()
-        .map_err(|_| {
+    let child_ref = Arc::new(Mutex::new(DownloadProcess {
+        child,
+        cancelled: false,
+    }));
+    {
+        let mut downloads = registry.0.lock().map_err(|_| {
             user_error(
                 "Download manager is unavailable.",
                 "Restart the app and try again.",
             )
-        })?
-        .insert(request.id.clone(), Arc::clone(&child_ref));
+        })?;
+        if downloads.contains_key(&request.id) {
+            let _ = child_ref.lock().map(|mut process| process.child.kill());
+            return Err(user_error(
+                "This download is already running.",
+                "Wait for the current download to finish or cancel it before trying again.",
+            ));
+        }
+        downloads.insert(request.id.clone(), Arc::clone(&child_ref));
+    }
 
     let id = request.id.clone();
     let event_app = app.clone();
@@ -1390,21 +1415,40 @@ fn start_download(
                 );
             }
         }
-        let status = child_ref
+        let (status, was_cancelled) = child_ref
             .lock()
             .ok()
-            .and_then(|mut child| child.wait().ok());
+            .map(|mut process| {
+                let status = process.child.wait().ok();
+                (status, process.cancelled)
+            })
+            .unwrap_or((None, false));
         let completed = status.map(|s| s.success()).unwrap_or(false);
+        let final_status = if was_cancelled {
+            "cancelled"
+        } else if completed {
+            "completed"
+        } else {
+            "failed"
+        };
         let _ = wait_app.emit(
             "download-finished",
             serde_json::json!({
                 "id": id,
-                "status": if completed { "completed" } else { "failed" },
+                "status": final_status,
                 "path": template
             }),
         );
         if let Some(state) = wait_app.try_state::<DownloadRegistry>() {
-            let _ = state.0.lock().map(|mut map| map.remove(&registry_id));
+            let _ = state.0.lock().map(|mut map| {
+                if map
+                    .get(&registry_id)
+                    .map(|process| Arc::ptr_eq(process, &child_ref))
+                    .unwrap_or(false)
+                {
+                    map.remove(&registry_id);
+                }
+            });
         }
     });
     Ok(output_path.to_string_lossy().to_string())
@@ -1423,7 +1467,10 @@ fn cancel_download(id: String, registry: State<DownloadRegistry>) -> AppResult<(
         })?
         .remove(&id);
     if let Some(child) = child {
-        let _ = child.lock().map(|mut process| process.kill());
+        let _ = child.lock().map(|mut process| {
+            process.cancelled = true;
+            process.child.kill()
+        });
     }
     Ok(())
 }
@@ -1480,8 +1527,8 @@ mod tests {
         append_audio_preset_args, append_chapter_args, append_metadata_args, append_subtitle_args,
         append_video_preset_args, audio_extension, detect_platform, is_download_platform,
         is_tiktok_video_url, normalize_settings, sanitize_format_id, sanitize_subtitle_language,
-        selected_video_selector, tool_asset, video_selector, Platform, Settings, FFMPEG_VERSION,
-        YT_DLP_VERSION,
+        selected_video_selector, tool_asset, validate_public_url, video_selector, Platform,
+        Settings, FFMPEG_VERSION, YT_DLP_VERSION,
     };
     use std::path::Path;
 
@@ -1489,6 +1536,10 @@ mod tests {
     fn detects_soundcloud_hosts_for_ytdlp_path() {
         assert_eq!(
             detect_platform("https://soundcloud.com/artist/track"),
+            Platform::SoundCloud
+        );
+        assert_eq!(
+            detect_platform(" https://www.soundcloud.com:443/artist/track "),
             Platform::SoundCloud
         );
         assert_eq!(
@@ -1505,6 +1556,10 @@ mod tests {
     fn detects_tiktok_hosts_for_ytdlp_path() {
         assert_eq!(
             detect_platform("https://www.tiktok.com/@artist/video/1234567890"),
+            Platform::TikTok
+        );
+        assert_eq!(
+            detect_platform("HTTPS://www.tiktok.com:443/@artist/video/1234567890"),
             Platform::TikTok
         );
         assert_eq!(
@@ -1528,6 +1583,21 @@ mod tests {
         assert!(is_tiktok_video_url("https://vm.tiktok.com/ZMabc123/"));
         assert!(!is_tiktok_video_url("https://www.tiktok.com/@artist"));
         assert!(!is_tiktok_video_url("https://www.tiktok.com/"));
+    }
+
+    #[test]
+    fn handles_url_parser_edge_cases() {
+        assert_eq!(
+            detect_platform("https://user:pass@www.youtube.com:443/watch?v=abc"),
+            Platform::YouTube
+        );
+        assert_eq!(
+            detect_platform("not a url youtube.com/watch"),
+            Platform::Unsupported
+        );
+        assert!(validate_public_url(" https://www.youtube.com/watch?v=abc ").is_ok());
+        assert!(validate_public_url("ftp://www.youtube.com/watch?v=abc").is_err());
+        assert!(validate_public_url("https://").is_err());
     }
 
     #[test]
@@ -1584,7 +1654,10 @@ mod tests {
     #[test]
     fn sanitizes_and_applies_selected_format_ids() {
         assert_eq!(sanitize_format_id("137"), Some("137".to_string()));
-        assert_eq!(sanitize_format_id("ba-1.2_audio"), Some("ba-1.2_audio".to_string()));
+        assert_eq!(
+            sanitize_format_id("ba-1.2_audio"),
+            Some("ba-1.2_audio".to_string())
+        );
         assert_eq!(sanitize_format_id("137+bestaudio"), None);
 
         let mut args = vec![];
@@ -1592,7 +1665,10 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair[0] == "-f" && pair[1] == "251/bestaudio/best"));
-        assert_eq!(selected_video_selector(Some("137"), "best"), "137+bestaudio/137/best");
+        assert_eq!(
+            selected_video_selector(Some("137"), "best"),
+            "137+bestaudio/137/best"
+        );
     }
 
     #[test]

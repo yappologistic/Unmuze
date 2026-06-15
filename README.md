@@ -23,7 +23,7 @@ The app is local-first. It does not require an account, does not use a cloud bac
 - Can save manual subtitles or auto-generated captions as SRT sidecar files for video downloads.
 - Shows progress, cancellation, completed downloads, and local history.
 - Supports light, dark, and system theme settings.
-- Checks for signed app updates from inside Settings.
+- Checks for Tauri signature-verified app updates from inside Settings.
 
 ## What It Does Not Do
 
@@ -53,7 +53,7 @@ You are responsible for having the rights to download any content you save. Use 
 1. Install Unmuze for your operating system.
 2. Open Unmuze.
 3. In Settings, choose **Install managed tools** if the app reports missing media tools.
-4. Use **Check for updates** in Settings when you want to install the latest signed release without visiting GitHub.
+4. Use **Check for updates** in Settings when you want to install the latest verified release without visiting GitHub.
 5. Paste a supported public URL in Download mode, or open Playlist mode for a YouTube playlist or SoundCloud set.
 6. Select audio or video, choose a preset or an advanced source format, choose an output folder, and save locally.
 7. Open advanced options when you want chapter splitting or subtitles for sources that provide them.

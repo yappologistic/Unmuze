@@ -19,7 +19,7 @@
     "build": "tsc -b && vite build",
     "check:versions": "node scripts/check-version-alignment.mjs",
     "check:updater": "node scripts/check-updater-artifacts.mjs",
-    "check:release": "npm test && npm run build && npm run check:versions && npm run check:updater",
+    "check:release": "npm run lint && npm test && npm run build && npm run check:versions && npm run check:updater",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",

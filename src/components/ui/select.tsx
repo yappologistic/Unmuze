@@ -1,13 +1,18 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
-function Select({ value, onValueChange, children, disabled }: { value: string; onValueChange: (value: string) => void; children: React.ReactNode; disabled?: boolean }) {
+type SelectProps = Omit<React.ComponentProps<"select">, "onChange" | "value"> & {
+  value: string
+  onValueChange: (value: string) => void
+}
+
+function Select({ value, onValueChange, children, className, ...props }: SelectProps) {
   return (
     <select
-      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+      className={cn("h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50", className)}
       value={value}
       onChange={(event) => onValueChange(event.target.value)}
-      disabled={disabled}
+      {...props}
     >
       {children}
     </select>

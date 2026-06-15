@@ -14,7 +14,10 @@ Run:
 
 ```bash
 npm test
+npm run lint
 npm run build
+npm run check:versions
+npm run check:updater
 cd src-tauri
 cargo test
 ```

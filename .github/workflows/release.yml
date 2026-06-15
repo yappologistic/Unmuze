@@ -14,6 +14,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   readiness:
     name: Release readiness
@@ -35,6 +39,23 @@ jobs:
         with:
           ref: ${{ steps.release.outputs.tag }}
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check release tag matches app version
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: node scripts/check-release-tag.mjs
+
+      - name: Check release notes exist
+        shell: bash
+        run: |
+          notes_file=".github/release-notes/${{ steps.release.outputs.tag }}.md"
+          test -s "$notes_file"
+
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
@@ -45,17 +66,14 @@ jobs:
             patchelf \
             libgtk-3-dev
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Run lint
+        run: npm run lint
 
       - name: Run frontend tests
         run: npm test
@@ -133,19 +151,58 @@ jobs:
           releaseBody: |
             Cross-platform release bundles for Unmuze.
 
-            What's included:
-            - Windows, macOS, and Linux installers generated from this tag.
-            - Signed updater metadata when updater signing secrets are configured.
-            - Source archives attached by GitHub.
-
-            Before publishing, review and expand these notes with the user-facing changes in this version.
-          releaseDraft: false
+            This draft is published only after all platform assets upload and
+            the matching .github/release-notes file is applied.
+          releaseDraft: true
           prerelease: false
 
       - name: Verify updater artifacts were generated
         shell: bash
+        run: |
+          find src-tauri/target/release/bundle -name "*.sig" -print -quit | grep -q .
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+
+      - name: Verify release assets and updater metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
+          printf '%s\n' "$assets" | grep -qx "latest.json"
+          printf '%s\n' "$assets" | grep -Eiq '\.(exe|msi)$'
+          printf '%s\n' "$assets" | grep -Eiq '\.(dmg|app\.tar\.gz)$'
+          printf '%s\n' "$assets" | grep -Eiq '\.(AppImage|deb|rpm)$'
+          mkdir -p release-check
+          gh release download "$RELEASE_TAG" -p latest.json -D release-check
+          expected_version="${RELEASE_TAG#v}"
+          jq -e --arg version "$expected_version" '.version == $version and (.platforms | length > 0)' release-check/latest.json
+
+      - name: Publish release notes
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          find src-tauri/target/release/bundle -name "*.sig" -print -quit | grep -q .
-          gh release view "${{ steps.release.outputs.tag }}" --json assets --jq '.assets[].name' | grep -qx "latest.json"
+          notes_file=".github/release-notes/${{ steps.release.outputs.tag }}.md"
+          test -f "$notes_file"
+          gh release edit "${{ steps.release.outputs.tag }}" --notes-file "$notes_file" --draft=false

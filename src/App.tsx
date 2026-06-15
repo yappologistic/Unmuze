@@ -155,13 +155,20 @@ function App() {
 
   useEffect(() => {
     const root = document.documentElement
-    root.classList.remove("light", "dark")
-    if (settings.theme === "system") {
-      const dark = window.matchMedia("(prefers-color-scheme: dark)").matches
-      root.classList.add(dark ? "dark" : "light")
-    } else {
-      root.classList.add(settings.theme)
+    const applyTheme = () => {
+      root.classList.remove("light", "dark")
+      if (settings.theme === "system") {
+        const dark = window.matchMedia("(prefers-color-scheme: dark)").matches
+        root.classList.add(dark ? "dark" : "light")
+      } else {
+        root.classList.add(settings.theme)
+      }
     }
+    applyTheme()
+    if (settings.theme !== "system") return
+    const media = window.matchMedia("(prefers-color-scheme: dark)")
+    media.addEventListener("change", applyTheme)
+    return () => media.removeEventListener("change", applyTheme)
   }, [settings.theme])
 
   useEffect(() => {
@@ -213,6 +220,7 @@ function App() {
       setDownloads((items) =>
         items.map((item) => {
           if (item.id !== payload.id) return item
+          if (["completed", "failed", "cancelled"].includes(item.status)) return item
           const percent = payload.line.match(/(\d+(?:\.\d+)?)%/)
           const progress = percent ? Number(percent[1]) : item.progress
           const converting = payload.line.toLowerCase().includes("ffmpeg") || payload.line.toLowerCase().includes("converting")
@@ -793,8 +801,9 @@ function DownloadScreen(props: {
                 </div>
               </Field>
               <Field>
-                <FieldLabel>Preset</FieldLabel>
+                <FieldLabel htmlFor="download-preset">Preset</FieldLabel>
                 <Select
+                  id="download-preset"
                   value={props.quality}
                   onValueChange={(value) => {
                     props.setQuality(normalizePresetForMode(value, props.mode))
@@ -811,8 +820,8 @@ function DownloadScreen(props: {
                 <FieldDescription>{selectedPreset.description}</FieldDescription>
               </Field>
               <Field>
-                <FieldLabel>Advanced source format</FieldLabel>
-                <Select value={props.selectedFormatId || "preset"} onValueChange={(value) => props.setSelectedFormatId(value === "preset" ? "" : value)} disabled={!canDownload || formatDetails.length === 0}>
+                <FieldLabel htmlFor="download-source-format">Advanced source format</FieldLabel>
+                <Select id="download-source-format" value={props.selectedFormatId || "preset"} onValueChange={(value) => props.setSelectedFormatId(value === "preset" ? "" : value)} disabled={!canDownload || formatDetails.length === 0}>
                   <SelectGroup>
                     <SelectItem value="preset">Use preset selection</SelectItem>
                     {formatDetails.map((detail) => (
@@ -820,7 +829,13 @@ function DownloadScreen(props: {
                     ))}
                   </SelectGroup>
                 </Select>
-                <FieldDescription>{formatDetails.length ? formatDetailSummary(selectedFormat) : "Inspect a downloadable URL to see source formats, codecs, bitrate, fps, and container details."}</FieldDescription>
+                <FieldDescription>
+                  {formatDetails.length
+                    ? props.selectedFormatId
+                      ? `${formatDetailSummary(selectedFormat)} Output preset still applies: ${estimatedFileType(props.quality, props.mode)}.`
+                      : formatDetailSummary(selectedFormat)
+                    : "Inspect a downloadable URL to see source formats, codecs, bitrate, fps, and container details."}
+                </FieldDescription>
               </Field>
               <Field>
                 <FieldLabel htmlFor="output-folder">Output folder</FieldLabel>
@@ -832,7 +847,7 @@ function DownloadScreen(props: {
               <Field>
                 <FieldLabel htmlFor="file-name">File name</FieldLabel>
                 <Input id="file-name" value={props.fileName} onChange={(event) => props.setFileName(sanitizeFilename(event.target.value))} placeholder="download" disabled={!canDownload} />
-                <FieldDescription>Estimated type: {estimatedFileType(props.quality, props.mode)}. Metadata and artwork are embedded when supported.</FieldDescription>
+                <FieldDescription>Output type: {estimatedFileType(props.quality, props.mode)}. Metadata and artwork are embedded when supported.</FieldDescription>
               </Field>
               <DownloadAdvancedOptions
                 canDownload={canDownload}
@@ -919,7 +934,7 @@ function PlaylistScreen(props: {
         <Card>
           <CardHeader>
             <CardTitle>Playlist URL</CardTitle>
-            <CardDescription>Supported: public YouTube playlists and SoundCloud sets available to local `yt-dlp`.</CardDescription>
+            <CardDescription>Supported: public YouTube playlists and SoundCloud sets available to local yt-dlp.</CardDescription>
           </CardHeader>
           <CardContent>
             <FieldGroup>
@@ -973,8 +988,8 @@ function PlaylistScreen(props: {
                 </FieldDescription>
               </Field>
               <Field>
-                <FieldLabel>Preset</FieldLabel>
-                <Select value={props.quality} onValueChange={(value) => props.setQuality(normalizePresetForMode(value, props.mode))} disabled={!props.inspection?.downloadable}>
+                <FieldLabel htmlFor="playlist-preset">Preset</FieldLabel>
+                <Select id="playlist-preset" value={props.quality} onValueChange={(value) => props.setQuality(normalizePresetForMode(value, props.mode))} disabled={!props.inspection?.downloadable}>
                   <SelectGroup>
                     {presetOptions.map((option) => (
                       <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
@@ -1033,7 +1048,7 @@ function PlaylistProgressSummary({ downloads }: { downloads: DownloadItem[] }) {
         <div>
           <CardTitle>Playlist progress</CardTitle>
           <CardDescription>
-            {completed} of {total} songs downloaded{failed ? ` · ${failed} failed` : ""}{cancelled ? ` · ${cancelled} cancelled` : ""}
+            {completed} of {total} items saved{failed ? ` · ${failed} failed` : ""}{cancelled ? ` · ${cancelled} cancelled` : ""}
           </CardDescription>
         </div>
         <Badge variant={complete ? "default" : "secondary"}>{complete ? "Finished" : `${active} active`}</Badge>
@@ -1041,7 +1056,7 @@ function PlaylistProgressSummary({ downloads }: { downloads: DownloadItem[] }) {
       <CardContent>
         <Progress value={progress} />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
-          <span>{current ? `Now downloading: ${current.title}` : complete ? "Playlist queue finished." : "Preparing the next song."}</span>
+          <span>{current ? `Now saving: ${current.title}` : complete ? "Playlist queue finished." : "Preparing the next item."}</span>
           <span>{progress}%</span>
         </div>
       </CardContent>
@@ -1083,7 +1098,7 @@ function DownloadAdvancedOptions(props: {
             <FieldDescription>Creates separate files for chapter markers when the source provides them.</FieldDescription>
           </div>
         </div>
-        <Switch className="mt-1" checked={props.splitChapters} onCheckedChange={props.setSplitChapters} disabled={!props.canDownload} />
+        <Switch className="mt-1" checked={props.splitChapters} onCheckedChange={props.setSplitChapters} disabled={!props.canDownload} aria-label="Split chapters" />
       </div>
       <Separator />
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
@@ -1096,12 +1111,12 @@ function DownloadAdvancedOptions(props: {
             <FieldDescription>Saves manual subtitles or auto captions as SRT sidecar files for video downloads.</FieldDescription>
           </div>
         </div>
-        <Switch className="mt-1" checked={subtitlesActive} onCheckedChange={props.setSaveSubtitles} disabled={!props.canSaveSubtitles} />
+        <Switch className="mt-1" checked={subtitlesActive} onCheckedChange={props.setSaveSubtitles} disabled={!props.canSaveSubtitles} aria-label="Save subtitles" />
       </div>
       {subtitlesActive ? (
         <Field className="ml-12 rounded-md border bg-background/60 p-3">
-          <FieldLabel>Subtitle language</FieldLabel>
-          <Select value={props.subtitleLanguage} onValueChange={props.setSubtitleLanguage}>
+          <FieldLabel htmlFor="subtitle-language">Subtitle language</FieldLabel>
+          <Select id="subtitle-language" value={props.subtitleLanguage} onValueChange={props.setSubtitleLanguage}>
             <SelectGroup>
               {subtitleLanguageOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
@@ -1234,14 +1249,14 @@ function DownloadManager({ downloads, onCancel }: { downloads: DownloadItem[]; o
             {downloads.map((item) => (
               <div key={item.id} className="rounded-md border p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <Badge variant={item.status === "completed" ? "default" : item.status === "failed" ? "destructive" : "secondary"}>{item.status}</Badge>
                       {item.playlistIndex && item.playlistTotal ? <Badge variant="outline">{item.playlistIndex} of {item.playlistTotal}</Badge> : null}
                       {item.selectedFormatId ? <Badge variant="outline">Format {item.selectedFormatId}</Badge> : null}
                       {item.splitChapters ? <Badge variant="outline">Chapters</Badge> : null}
                       {item.saveSubtitles ? <Badge variant="outline">Subs {item.subtitleLanguage || "en"}</Badge> : null}
-                      <span className="truncate font-medium">{item.title}</span>
+                      <span className="min-w-0 flex-1 truncate font-medium">{item.title}</span>
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">{item.playlistTitle ? `${item.playlistTitle} · ` : ""}{item.message}</p>
                   </div>
@@ -1280,28 +1295,30 @@ function HistoryScreen({ history, setHistory }: { history: HistoryItem[]; setHis
         {history.length === 0 ? (
           <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">No completed downloads yet.</div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Title</TableHead>
-                <TableHead>Platform</TableHead>
-                <TableHead>Format</TableHead>
-                <TableHead>Completed</TableHead>
-                <TableHead>Action</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {history.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="max-w-xs truncate font-medium">{item.title}</TableCell>
-                  <TableCell>{platformLabel(item.platform)}</TableCell>
-                  <TableCell>{item.mode}</TableCell>
-                  <TableCell>{new Date(item.completedAt).toLocaleString()}</TableCell>
-                  <TableCell><Button variant="outline" size="sm" onClick={() => revealPath(item.path)}>Open</Button></TableCell>
+          <div className="overflow-x-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Platform</TableHead>
+                  <TableHead>Format</TableHead>
+                  <TableHead>Completed</TableHead>
+                  <TableHead>Action</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {history.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="max-w-xs truncate font-medium">{item.title}</TableCell>
+                    <TableCell>{platformLabel(item.platform)}</TableCell>
+                    <TableCell>{item.mode}</TableCell>
+                    <TableCell>{new Date(item.completedAt).toLocaleString()}</TableCell>
+                    <TableCell><Button variant="outline" size="sm" onClick={() => revealPath(item.path)}>Open</Button></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -1360,8 +1377,9 @@ function SettingsScreen({
               </div>
             </Field>
             <Field>
-              <FieldLabel>Default format</FieldLabel>
+              <FieldLabel htmlFor="settings-default-format">Default format</FieldLabel>
               <Select
+                id="settings-default-format"
                 value={settings.defaultFormat}
                 onValueChange={(value) => {
                   const defaultFormat = value as DownloadMode
@@ -1379,8 +1397,9 @@ function SettingsScreen({
               </Select>
             </Field>
             <Field>
-              <FieldLabel>Default preset</FieldLabel>
+              <FieldLabel htmlFor="settings-default-preset">Default preset</FieldLabel>
               <Select
+                id="settings-default-preset"
                 value={normalizePresetForMode(settings.defaultQuality, settings.defaultFormat)}
                 onValueChange={(value) => onSave({ ...settings, defaultQuality: normalizePresetForMode(value, settings.defaultFormat) })}
               >
@@ -1393,12 +1412,13 @@ function SettingsScreen({
               <FieldDescription>{presetDetails(normalizePresetForMode(settings.defaultQuality, settings.defaultFormat), settings.defaultFormat).description}</FieldDescription>
             </Field>
             <Field>
-              <FieldLabel>Default output folder</FieldLabel>
-              <Input value={settings.defaultOutputFolder} onChange={(event) => onSave({ ...settings, defaultOutputFolder: event.target.value })} />
+              <FieldLabel htmlFor="settings-default-output-folder">Default output folder</FieldLabel>
+              <Input id="settings-default-output-folder" value={settings.defaultOutputFolder} onChange={(event) => onSave({ ...settings, defaultOutputFolder: event.target.value })} />
             </Field>
             <Field>
-              <FieldLabel>Playlist concurrency</FieldLabel>
+              <FieldLabel htmlFor="settings-playlist-concurrency">Playlist concurrency</FieldLabel>
               <Select
+                id="settings-playlist-concurrency"
                 value={String(clampPlaylistConcurrency(settings.playlistConcurrency))}
                 onValueChange={(value) => onSave({ ...settings, playlistConcurrency: clampPlaylistConcurrency(Number(value)) })}
               >
@@ -1415,7 +1435,7 @@ function SettingsScreen({
                 <FieldLabel>Keep download history</FieldLabel>
                 <FieldDescription>History contains titles and local file paths only.</FieldDescription>
               </div>
-              <Switch checked={settings.keepHistory} onCheckedChange={(checked) => onSave({ ...settings, keepHistory: checked })} />
+              <Switch checked={settings.keepHistory} onCheckedChange={(checked) => onSave({ ...settings, keepHistory: checked })} aria-label="Keep download history" />
             </div>
           </FieldGroup>
         </CardContent>

@@ -25,6 +25,7 @@ npm run dev
 
 ```bash
 npm test
+npm run lint
 npm run build
 npm run check:versions
 npm run check:updater
@@ -32,7 +33,7 @@ cd src-tauri
 cargo test
 ```
 
-`npm run check:release` runs the frontend release-readiness checks together. GitHub Actions also runs `cargo test` in the release-readiness workflow.
+`npm run check:release` runs linting, frontend tests, the production frontend build, version alignment, and updater configuration checks together. Run `cargo test` separately from `src-tauri` before release work.
 
 ## Build Installers
 
@@ -48,13 +49,16 @@ GitHub Actions builds release bundles for Windows, macOS, and Linux when a versi
 
 Before the platform bundle matrix starts, CI verifies:
 
+- release tag alignment with the app version;
+- version-specific release notes in `.github/release-notes/vX.Y.Z.md`;
+- linting with `npm run lint`;
 - frontend tests with `npm test`;
 - production frontend build with `npm run build`;
 - Rust tests with `cargo test`;
 - version alignment across `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`;
 - updater artifact readiness, including `createUpdaterArtifacts`, updater endpoint configuration, and signing-key wiring in the release workflow.
 
-After each release bundle build, CI also checks that Tauri generated `latest.json` and updater signature files before the workflow is considered successful.
+After each release bundle build, CI checks that Tauri generated updater signature files. After all platform builds finish, the publish job verifies Windows, macOS, Linux, and `latest.json` release assets, applies the matching release notes file, and then publishes the draft release.
 
 The release workflow also builds signed updater artifacts and uploads `latest.json` for in-app updates. The repository must have these Actions secrets configured:
 
@@ -63,7 +67,7 @@ The release workflow also builds signed updater artifacts and uploads `latest.js
 
 The public updater key is stored in `src-tauri/tauri.conf.json`; do not commit the private key.
 
-After the workflow finishes, review the GitHub release page and make sure the body includes version-specific user-facing changes before sharing the release link.
+Before tagging a release, add a user-facing notes file at `.github/release-notes/vX.Y.Z.md`. The workflow keeps the GitHub release as a draft until those notes are applied and the cross-platform assets are present.
 
 ## Platform Notes
 
