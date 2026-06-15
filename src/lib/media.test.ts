@@ -6,6 +6,9 @@ import {
   defaultSettings,
   detectPlatform,
   estimatedFileType,
+  formatDetailLabel,
+  formatDetailSummary,
+  formatDetailsForMode,
   isPresetAllowedForMode,
   isLikelyPlaylistUrl,
   isLikelyTikTokVideoUrl,
@@ -120,6 +123,42 @@ describe("format presets", () => {
     expect(normalizePresetForMode("audio-wav", "video")).toBe("best")
     expect(presetDetails("video-mp4-1080", "video").extension).toBe("mp4")
     expect(estimatedFileType("audio-opus", "audio")).toBe("OPUS audio")
+  })
+})
+
+describe("format details", () => {
+  const details = [
+    {
+      id: "251",
+      kind: "audio" as const,
+      label: "Audio only",
+      ext: "webm",
+      audioCodec: "opus",
+      audioBitrate: 160,
+      totalBitrate: 160,
+      filesize: 2_097_152,
+    },
+    {
+      id: "137",
+      kind: "video" as const,
+      label: "1080p",
+      ext: "mp4",
+      resolution: "1920x1080",
+      fps: 30,
+      videoCodec: "avc1",
+      totalBitrate: 4500,
+    },
+  ]
+
+  it("filters details by download mode", () => {
+    expect(formatDetailsForMode(details, "audio").map((detail) => detail.id)).toEqual(["251"])
+    expect(formatDetailsForMode(details, "video").map((detail) => detail.id)).toEqual(["137"])
+  })
+
+  it("builds readable labels and summaries", () => {
+    expect(formatDetailLabel(details[1])).toContain("1080p")
+    expect(formatDetailSummary(details[0])).toContain("160 kbps audio")
+    expect(formatDetailSummary(details[0])).toContain("2.0 MB")
   })
 })
 

@@ -28,8 +28,27 @@ export type Inspection = {
   duration?: number | null
   thumbnail?: string | null
   formats: string[]
+  formatDetails?: FormatDetail[]
   limitation?: string | null
   suggestedFileName?: string | null
+}
+
+export type FormatDetail = {
+  id: string
+  kind: "audio" | "video" | "muxed"
+  label: string
+  ext?: string | null
+  resolution?: string | null
+  width?: number | null
+  height?: number | null
+  fps?: number | null
+  videoCodec?: string | null
+  audioCodec?: string | null
+  audioBitrate?: number | null
+  videoBitrate?: number | null
+  totalBitrate?: number | null
+  filesize?: number | null
+  note?: string | null
 }
 
 export type PlaylistEntry = {
@@ -103,6 +122,7 @@ export type DownloadItem = {
   splitChapters?: boolean
   saveSubtitles?: boolean
   subtitleLanguage?: string
+  selectedFormatId?: string
   path?: string
   playlistTitle?: string
   playlistIndex?: number
@@ -166,6 +186,48 @@ export function presetDetails(preset: DownloadPreset, mode: DownloadMode) {
 export function estimatedFileType(preset: DownloadPreset, mode: DownloadMode) {
   const details = presetDetails(preset, mode)
   return `${details.extension.toUpperCase()} ${mode === "audio" ? "audio" : "video"}`
+}
+
+export function formatDetailsForMode(details: FormatDetail[] | undefined, mode: DownloadMode) {
+  const rows = details || []
+  return rows.filter((detail) => (mode === "audio" ? detail.kind === "audio" || detail.kind === "muxed" : detail.kind === "video" || detail.kind === "muxed"))
+}
+
+function compactParts(parts: Array<string | number | null | undefined>) {
+  return parts.filter((part) => part !== null && part !== undefined && `${part}`.trim()).map((part) => `${part}`.trim())
+}
+
+export function formatBytes(bytes?: number | null) {
+  if (!bytes || !Number.isFinite(bytes)) return ""
+  const units = ["B", "KB", "MB", "GB"]
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`
+}
+
+export function formatDetailLabel(detail: FormatDetail) {
+  const primary = detail.kind === "audio" ? detail.audioCodec : detail.resolution || (detail.height ? `${detail.height}p` : detail.videoCodec)
+  const secondary = compactParts([detail.ext?.toUpperCase(), detail.fps ? `${detail.fps} fps` : null, detail.totalBitrate ? `${Math.round(detail.totalBitrate)} kbps` : null])
+  return compactParts([detail.label || detail.id, primary, secondary.join(" · ")]).join(" — ")
+}
+
+export function formatDetailSummary(detail?: FormatDetail) {
+  if (!detail) return "Use the selected preset to let yt-dlp choose the best matching source."
+  const size = formatBytes(detail.filesize)
+  const codecs = compactParts([detail.videoCodec && detail.videoCodec !== "none" ? `video ${detail.videoCodec}` : null, detail.audioCodec && detail.audioCodec !== "none" ? `audio ${detail.audioCodec}` : null])
+  const metrics = compactParts([
+    detail.resolution,
+    detail.fps ? `${detail.fps} fps` : null,
+    detail.audioBitrate ? `${Math.round(detail.audioBitrate)} kbps audio` : null,
+    detail.videoBitrate ? `${Math.round(detail.videoBitrate)} kbps video` : null,
+    detail.totalBitrate ? `${Math.round(detail.totalBitrate)} kbps total` : null,
+    size,
+  ])
+  return compactParts([metrics.join(" · "), codecs.join(" · "), detail.note]).join(". ")
 }
 
 export function detectPlatform(rawUrl: string): Platform {

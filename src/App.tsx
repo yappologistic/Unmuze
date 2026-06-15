@@ -47,6 +47,9 @@ import {
   defaultSettings,
   detectPlatform,
   estimatedFileType,
+  formatDetailLabel,
+  formatDetailSummary,
+  formatDetailsForMode,
   formatDuration,
   normalizePresetForMode,
   type DownloadItem,
@@ -111,6 +114,7 @@ function App() {
   const [downloads, setDownloads] = useState<DownloadItem[]>([])
   const [mode, setMode] = useState<DownloadMode>("audio")
   const [quality, setQuality] = useState<DownloadPreset>("best")
+  const [selectedFormatId, setSelectedFormatId] = useState("")
   const [splitChapters, setSplitChapters] = useState(false)
   const [saveSubtitles, setSaveSubtitles] = useState(false)
   const [subtitleLanguage, setSubtitleLanguage] = useState("en")
@@ -273,6 +277,7 @@ function App() {
       const nextMode = result.formats.includes(settings.defaultFormat) ? settings.defaultFormat : "audio"
       setMode(nextMode)
       setQuality(normalizePresetForMode(settings.defaultQuality, nextMode))
+      setSelectedFormatId("")
       if (nextMode === "audio") setSaveSubtitles(false)
       setFileName(sanitizeFilename(result.suggestedFileName || result.title || "download"))
       if (!result.downloadable && result.limitation) {
@@ -506,6 +511,7 @@ function App() {
       splitChapters,
       saveSubtitles: mode === "video" && saveSubtitles,
       subtitleLanguage,
+      selectedFormatId: selectedFormatId || undefined,
     }
     setDownloads((items) => [item, ...items])
     try {
@@ -519,6 +525,7 @@ function App() {
         splitChapters,
         saveSubtitles: mode === "video" && saveSubtitles,
         subtitleLanguage,
+        selectedFormatId: selectedFormatId || undefined,
       })
       setDownloads((items) => items.map((download) => (download.id === id ? { ...download, path } : download)))
       toast.success("Download started.")
@@ -594,6 +601,8 @@ function App() {
                   setMode={setMode}
                   quality={quality}
                   setQuality={setQuality}
+                  selectedFormatId={selectedFormatId}
+                  setSelectedFormatId={setSelectedFormatId}
                   splitChapters={splitChapters}
                   setSplitChapters={setSplitChapters}
                   saveSubtitles={saveSubtitles}
@@ -692,6 +701,8 @@ function DownloadScreen(props: {
   setMode: (value: DownloadMode) => void
   quality: DownloadPreset
   setQuality: (value: DownloadPreset) => void
+  selectedFormatId: string
+  setSelectedFormatId: (value: string) => void
   splitChapters: boolean
   setSplitChapters: (value: boolean) => void
   saveSubtitles: boolean
@@ -713,9 +724,12 @@ function DownloadScreen(props: {
   const canSaveSubtitles = canDownload && props.mode === "video"
   const presetOptions = presetOptionsForMode(props.mode)
   const selectedPreset = presetDetails(props.quality, props.mode)
+  const formatDetails = formatDetailsForMode(props.inspection?.formatDetails, props.mode)
+  const selectedFormat = formatDetails.find((detail) => detail.id === props.selectedFormatId)
   const changeMode = (nextMode: DownloadMode) => {
     props.setMode(nextMode)
     props.setQuality(normalizePresetForMode(props.quality, nextMode))
+    props.setSelectedFormatId("")
     if (nextMode === "audio") props.setSaveSubtitles(false)
   }
   return (
@@ -780,7 +794,14 @@ function DownloadScreen(props: {
               </Field>
               <Field>
                 <FieldLabel>Preset</FieldLabel>
-                <Select value={props.quality} onValueChange={(value) => props.setQuality(normalizePresetForMode(value, props.mode))} disabled={!canDownload}>
+                <Select
+                  value={props.quality}
+                  onValueChange={(value) => {
+                    props.setQuality(normalizePresetForMode(value, props.mode))
+                    props.setSelectedFormatId("")
+                  }}
+                  disabled={!canDownload}
+                >
                   <SelectGroup>
                     {presetOptions.map((option) => (
                       <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
@@ -788,6 +809,18 @@ function DownloadScreen(props: {
                   </SelectGroup>
                 </Select>
                 <FieldDescription>{selectedPreset.description}</FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel>Advanced source format</FieldLabel>
+                <Select value={props.selectedFormatId || "preset"} onValueChange={(value) => props.setSelectedFormatId(value === "preset" ? "" : value)} disabled={!canDownload || formatDetails.length === 0}>
+                  <SelectGroup>
+                    <SelectItem value="preset">Use preset selection</SelectItem>
+                    {formatDetails.map((detail) => (
+                      <SelectItem key={detail.id} value={detail.id}>{formatDetailLabel(detail)}</SelectItem>
+                    ))}
+                  </SelectGroup>
+                </Select>
+                <FieldDescription>{formatDetails.length ? formatDetailSummary(selectedFormat) : "Inspect a downloadable URL to see source formats, codecs, bitrate, fps, and container details."}</FieldDescription>
               </Field>
               <Field>
                 <FieldLabel htmlFor="output-folder">Output folder</FieldLabel>
@@ -1205,6 +1238,7 @@ function DownloadManager({ downloads, onCancel }: { downloads: DownloadItem[]; o
                     <div className="flex items-center gap-2">
                       <Badge variant={item.status === "completed" ? "default" : item.status === "failed" ? "destructive" : "secondary"}>{item.status}</Badge>
                       {item.playlistIndex && item.playlistTotal ? <Badge variant="outline">{item.playlistIndex} of {item.playlistTotal}</Badge> : null}
+                      {item.selectedFormatId ? <Badge variant="outline">Format {item.selectedFormatId}</Badge> : null}
                       {item.splitChapters ? <Badge variant="outline">Chapters</Badge> : null}
                       {item.saveSubtitles ? <Badge variant="outline">Subs {item.subtitleLanguage || "en"}</Badge> : null}
                       <span className="truncate font-medium">{item.title}</span>

@@ -17,6 +17,7 @@ The app is local-first. It does not require an account, does not use a cloud bac
 - Saves audio or video through managed or system media tooling when the content is legally permitted and technically available.
 - Runs playlist downloads concurrently with a configurable limit of 1, 2, or 3 items at a time.
 - Provides simple **Best** and **Balanced** presets plus explicit MP3, M4A, Opus, WAV, MP4 best, MP4 1080p, and MP4 720p choices.
+- Includes an advanced source format picker that can show available resolution, container, codecs, bitrate, fps, and size details after inspection.
 - Embeds title, uploader/artist metadata, source URL, and thumbnail artwork when the selected output format supports it.
 - Can split chaptered videos, podcasts, lectures, or albums into separate files by chapter.
 - Can save manual subtitles or auto-generated captions as SRT sidecar files for video downloads.
@@ -54,7 +55,7 @@ You are responsible for having the rights to download any content you save. Use 
 3. In Settings, choose **Install managed tools** if the app reports missing media tools.
 4. Use **Check for updates** in Settings when you want to install the latest signed release without visiting GitHub.
 5. Paste a supported public URL in Download mode, or open Playlist mode for a YouTube playlist or SoundCloud set.
-6. Select audio or video, choose a preset, choose an output folder, and save locally.
+6. Select audio or video, choose a preset or an advanced source format, choose an output folder, and save locally.
 7. Open advanced options when you want chapter splitting or subtitles for sources that provide them.
 
 See [INSTALL.md](INSTALL.md) and [BUILD.md](BUILD.md) for setup and packaging instructions.

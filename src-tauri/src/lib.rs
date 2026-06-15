@@ -45,6 +45,8 @@ struct DownloadRequest {
     output_dir: String,
     file_name: String,
     #[serde(default)]
+    selected_format_id: Option<String>,
+    #[serde(default)]
     split_chapters: bool,
     #[serde(default)]
     save_subtitles: bool,
@@ -85,8 +87,29 @@ struct Inspection {
     duration: Option<u64>,
     thumbnail: Option<String>,
     formats: Vec<String>,
+    format_details: Vec<FormatDetail>,
     limitation: Option<String>,
     suggested_file_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FormatDetail {
+    id: String,
+    kind: String,
+    label: String,
+    ext: Option<String>,
+    resolution: Option<String>,
+    width: Option<u64>,
+    height: Option<u64>,
+    fps: Option<f64>,
+    video_codec: Option<String>,
+    audio_codec: Option<String>,
+    audio_bitrate: Option<f64>,
+    video_bitrate: Option<f64>,
+    total_bitrate: Option<f64>,
+    filesize: Option<u64>,
+    note: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -714,6 +737,7 @@ fn inspect_media(app: AppHandle, request: InspectRequest) -> AppResult<Inspectio
             duration: None,
             thumbnail: None,
             formats: vec![],
+            format_details: vec![],
             limitation: Some("This Spotify URL cannot be downloaded because Spotify does not expose downloadable audio files for tracks, albums, or playlists without protected access.".to_string()),
             suggested_file_name: None,
         }),
@@ -725,6 +749,7 @@ fn inspect_media(app: AppHandle, request: InspectRequest) -> AppResult<Inspectio
             duration: None,
             thumbnail: None,
             formats: vec![],
+            format_details: vec![],
             limitation: Some("This app currently supports permitted public YouTube, SoundCloud, and TikTok URLs only.".to_string()),
             suggested_file_name: None,
         }),
@@ -736,6 +761,7 @@ fn inspect_media(app: AppHandle, request: InspectRequest) -> AppResult<Inspectio
             duration: None,
             thumbnail: None,
             formats: vec![],
+            format_details: vec![],
             limitation: Some("Paste an individual public TikTok video URL, not a profile or playlist.".to_string()),
             suggested_file_name: None,
         }),
@@ -933,6 +959,100 @@ fn playlist_entry_from_json(
     })
 }
 
+fn json_string(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.trim().is_empty() && *v != "none")
+        .map(str::to_string)
+}
+
+fn json_u64(value: &serde_json::Value, key: &str) -> Option<u64> {
+    value.get(key).and_then(|v| {
+        v.as_u64()
+            .or_else(|| v.as_f64().filter(|n| *n >= 0.0).map(|n| n.round() as u64))
+    })
+}
+
+fn json_f64(value: &serde_json::Value, key: &str) -> Option<f64> {
+    value
+        .get(key)
+        .and_then(|v| v.as_f64().or_else(|| v.as_u64().map(|n| n as f64)))
+        .filter(|n| n.is_finite() && *n > 0.0)
+}
+
+fn raw_codec(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.trim().is_empty())
+        .map(str::to_string)
+}
+
+fn format_kind(video_codec: Option<&str>, audio_codec: Option<&str>) -> Option<&'static str> {
+    let has_video = video_codec.is_some_and(|value| value != "none");
+    let has_audio = audio_codec.is_some_and(|value| value != "none");
+    match (has_video, has_audio) {
+        (true, true) => Some("muxed"),
+        (true, false) => Some("video"),
+        (false, true) => Some("audio"),
+        _ => None,
+    }
+}
+
+fn build_format_label(format: &serde_json::Value, id: &str, kind: &str) -> String {
+    if let Some(note) = json_string(format, "format_note") {
+        return note;
+    }
+    if let Some(resolution) = json_string(format, "resolution") {
+        if resolution != "audio only" {
+            return resolution;
+        }
+    }
+    if let Some(height) = json_u64(format, "height") {
+        return format!("{height}p");
+    }
+    if kind == "audio" {
+        return "Audio only".to_string();
+    }
+    id.to_string()
+}
+
+fn available_format_details(json: &serde_json::Value) -> Vec<FormatDetail> {
+    let Some(formats) = json.get("formats").and_then(|v| v.as_array()) else {
+        return vec![];
+    };
+    formats
+        .iter()
+        .filter_map(|format| {
+            let id = json_string(format, "format_id")?;
+            let video_codec = raw_codec(format, "vcodec");
+            let audio_codec = raw_codec(format, "acodec");
+            let kind = format_kind(video_codec.as_deref(), audio_codec.as_deref())?;
+            let filesize =
+                json_u64(format, "filesize").or_else(|| json_u64(format, "filesize_approx"));
+            Some(FormatDetail {
+                label: build_format_label(format, &id, kind),
+                id,
+                kind: kind.to_string(),
+                ext: json_string(format, "ext"),
+                resolution: json_string(format, "resolution").filter(|value| value != "audio only"),
+                width: json_u64(format, "width"),
+                height: json_u64(format, "height"),
+                fps: json_f64(format, "fps"),
+                video_codec,
+                audio_codec,
+                audio_bitrate: json_f64(format, "abr"),
+                video_bitrate: json_f64(format, "vbr"),
+                total_bitrate: json_f64(format, "tbr"),
+                filesize,
+                note: json_string(format, "format_note"),
+            })
+        })
+        .take(120)
+        .collect()
+}
+
 fn inspect_with_ytdlp(app: &AppHandle, url: &str, platform: Platform) -> AppResult<Inspection> {
     let ytdlp = active_tool_path(app, "yt-dlp");
     let mut command = tool_command(&ytdlp);
@@ -1000,6 +1120,7 @@ fn inspect_with_ytdlp(app: &AppHandle, url: &str, platform: Platform) -> AppResu
     } else {
         vec!["audio".to_string(), "video".to_string()]
     };
+    let format_details = available_format_details(&json);
     Ok(Inspection {
         platform,
         downloadable: true,
@@ -1008,6 +1129,7 @@ fn inspect_with_ytdlp(app: &AppHandle, url: &str, platform: Platform) -> AppResu
         duration,
         thumbnail,
         formats,
+        format_details,
         limitation: None,
         suggested_file_name: suggested,
     })
@@ -1033,7 +1155,7 @@ fn append_metadata_args(args: &mut Vec<String>) {
     ]);
 }
 
-fn append_audio_preset_args(args: &mut Vec<String>, preset: &str) {
+fn append_audio_preset_args(args: &mut Vec<String>, preset: &str, selected_format_id: Option<&str>) {
     let (format, quality) = match preset {
         "balanced" => ("m4a", "5"),
         "audio-m4a" => ("m4a", "0"),
@@ -1043,13 +1165,41 @@ fn append_audio_preset_args(args: &mut Vec<String>, preset: &str) {
     };
     args.extend([
         "-f".to_string(),
-        "bestaudio/best".to_string(),
+        selected_audio_selector(selected_format_id),
         "-x".to_string(),
         "--audio-format".to_string(),
         format.to_string(),
         "--audio-quality".to_string(),
         quality.to_string(),
     ]);
+}
+
+fn sanitize_format_id(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > 80
+        || !trimmed
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn selected_audio_selector(selected_format_id: Option<&str>) -> String {
+    selected_format_id
+        .and_then(sanitize_format_id)
+        .map(|id| format!("{id}/bestaudio/best"))
+        .unwrap_or_else(|| "bestaudio/best".to_string())
+}
+
+fn selected_video_selector(selected_format_id: Option<&str>, preset: &str) -> String {
+    selected_format_id
+        .and_then(sanitize_format_id)
+        .map(|id| format!("{id}+bestaudio/{id}/best"))
+        .unwrap_or_else(|| video_selector(preset).to_string())
 }
 
 fn video_selector(preset: &str) -> &'static str {
@@ -1064,10 +1214,10 @@ fn video_selector(preset: &str) -> &'static str {
     }
 }
 
-fn append_video_preset_args(args: &mut Vec<String>, preset: &str) {
+fn append_video_preset_args(args: &mut Vec<String>, preset: &str, selected_format_id: Option<&str>) {
     args.extend([
         "-f".to_string(),
-        video_selector(preset).to_string(),
+        selected_video_selector(selected_format_id, preset),
         "--merge-output-format".to_string(),
         "mp4".to_string(),
     ]);
@@ -1172,9 +1322,17 @@ fn start_download(
         append_subtitle_args(&mut args, &request.subtitle_language);
     }
     if request.mode == "audio" {
-        append_audio_preset_args(&mut args, &request.quality);
+        append_audio_preset_args(
+            &mut args,
+            &request.quality,
+            request.selected_format_id.as_deref(),
+        );
     } else {
-        append_video_preset_args(&mut args, &request.quality);
+        append_video_preset_args(
+            &mut args,
+            &request.quality,
+            request.selected_format_id.as_deref(),
+        );
     }
     args.push(request.url.clone());
     let ytdlp = active_tool_path(&app, "yt-dlp");
@@ -1321,8 +1479,9 @@ mod tests {
     use super::{
         append_audio_preset_args, append_chapter_args, append_metadata_args, append_subtitle_args,
         append_video_preset_args, audio_extension, detect_platform, is_download_platform,
-        is_tiktok_video_url, normalize_settings, sanitize_subtitle_language, tool_asset,
-        video_selector, Platform, Settings, FFMPEG_VERSION, YT_DLP_VERSION,
+        is_tiktok_video_url, normalize_settings, sanitize_format_id, sanitize_subtitle_language,
+        selected_video_selector, tool_asset, video_selector, Platform, Settings, FFMPEG_VERSION,
+        YT_DLP_VERSION,
     };
     use std::path::Path;
 
@@ -1400,7 +1559,7 @@ mod tests {
         assert_eq!(audio_extension("audio-wav"), "wav");
 
         let mut args = vec![];
-        append_audio_preset_args(&mut args, "audio-opus");
+        append_audio_preset_args(&mut args, "audio-opus", None);
         assert!(args
             .windows(2)
             .any(|pair| pair[0] == "--audio-format" && pair[1] == "opus"));
@@ -1416,10 +1575,24 @@ mod tests {
         assert!(video_selector("balanced").contains("height<=720"));
 
         let mut args = vec![];
-        append_video_preset_args(&mut args, "video-mp4-720");
+        append_video_preset_args(&mut args, "video-mp4-720", None);
         assert!(args
             .windows(2)
             .any(|pair| pair[0] == "--merge-output-format" && pair[1] == "mp4"));
+    }
+
+    #[test]
+    fn sanitizes_and_applies_selected_format_ids() {
+        assert_eq!(sanitize_format_id("137"), Some("137".to_string()));
+        assert_eq!(sanitize_format_id("ba-1.2_audio"), Some("ba-1.2_audio".to_string()));
+        assert_eq!(sanitize_format_id("137+bestaudio"), None);
+
+        let mut args = vec![];
+        append_audio_preset_args(&mut args, "audio-mp3", Some("251"));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-f" && pair[1] == "251/bestaudio/best"));
+        assert_eq!(selected_video_selector(Some("137"), "best"), "137+bestaudio/137/best");
     }
 
     #[test]

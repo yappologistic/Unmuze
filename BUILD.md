@@ -26,9 +26,13 @@ npm run dev
 ```bash
 npm test
 npm run build
+npm run check:versions
+npm run check:updater
 cd src-tauri
 cargo test
 ```
+
+`npm run check:release` runs the frontend release-readiness checks together. GitHub Actions also runs `cargo test` in the release-readiness workflow.
 
 ## Build Installers
 
@@ -42,6 +46,16 @@ Tauri writes platform-specific installers under `src-tauri/target/release/bundle
 
 GitHub Actions builds release bundles for Windows, macOS, and Linux when a version tag is pushed or when the release workflow is run manually.
 
+Before the platform bundle matrix starts, CI verifies:
+
+- frontend tests with `npm test`;
+- production frontend build with `npm run build`;
+- Rust tests with `cargo test`;
+- version alignment across `package.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`;
+- updater artifact readiness, including `createUpdaterArtifacts`, updater endpoint configuration, and signing-key wiring in the release workflow.
+
+After each release bundle build, CI also checks that Tauri generated `latest.json` and updater signature files before the workflow is considered successful.
+
 The release workflow also builds signed updater artifacts and uploads `latest.json` for in-app updates. The repository must have these Actions secrets configured:
 
 - `TAURI_SIGNING_PRIVATE_KEY`: private updater signing key content.
@@ -49,7 +63,7 @@ The release workflow also builds signed updater artifacts and uploads `latest.js
 
 The public updater key is stored in `src-tauri/tauri.conf.json`; do not commit the private key.
 
-After the workflow finishes, review the GitHub release page and replace the starter body with version-specific user-facing changes before sharing the release link.
+After the workflow finishes, review the GitHub release page and make sure the body includes version-specific user-facing changes before sharing the release link.
 
 ## Platform Notes
 
