@@ -9,7 +9,7 @@ type SelectProps = Omit<React.ComponentProps<"select">, "onChange" | "value"> & 
 function Select({ value, onValueChange, children, className, ...props }: SelectProps) {
   return (
     <select
-      className={cn("h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50", className)}
+      className={cn("h-11 w-full rounded-xl border border-input bg-card/70 px-3.5 text-sm font-medium shadow-sm transition-all focus-visible:border-ring/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50", className)}
       value={value}
       onChange={(event) => onValueChange(event.target.value)}
       {...props}

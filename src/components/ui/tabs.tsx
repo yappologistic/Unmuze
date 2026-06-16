@@ -17,7 +17,7 @@ function Tabs({ value, onValueChange, children, className }: { value: string; on
 }
 
 function TabsList({ className, ...props }: React.ComponentProps<"div">) {
-  return <div role="tablist" className={cn("inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground", className)} {...props} />
+  return <div role="tablist" className={cn("inline-flex h-11 items-center justify-center rounded-2xl bg-muted p-1 text-muted-foreground", className)} {...props} />
 }
 
 function TabsTrigger({ value, className, ...props }: React.ComponentProps<"button"> & { value: string }) {
@@ -40,7 +40,7 @@ function TabsTrigger({ value, className, ...props }: React.ComponentProps<"butto
       aria-selected={active}
       aria-controls={context ? `${context.baseId}-content-${idPart}` : undefined}
       tabIndex={active ? 0 : -1}
-      className={cn("inline-flex items-center justify-center gap-2 rounded-sm px-3 py-1.5 text-sm font-medium transition-all data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm", className)}
+      className={cn("inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition-all duration-200 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=active]:selected-pill data-[state=active]:text-foreground", className)}
       data-state={active ? "active" : "inactive"}
       {...props}
       onClick={(event) => {
@@ -79,7 +79,7 @@ function TabsContent({ value, className, ...props }: React.ComponentProps<"div">
       role="tabpanel"
       aria-labelledby={`${context.baseId}-trigger-${idPart}`}
       tabIndex={0}
-      className={cn("outline-none", className)}
+      className={cn("screen-enter outline-none", className)}
       {...props}
     />
   )

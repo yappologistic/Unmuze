@@ -4,6 +4,8 @@ import { relaunch } from "@tauri-apps/plugin-process"
 import { check, type Update } from "@tauri-apps/plugin-updater"
 import {
   AlertCircleIcon,
+  CheckCircleIcon,
+  Clock3Icon,
   DownloadIcon,
   ExternalLinkIcon,
   FolderIcon,
@@ -15,7 +17,6 @@ import {
   MusicIcon,
   SearchIcon,
   SettingsIcon,
-  ShieldCheckIcon,
   SquareIcon,
   SunIcon,
   RefreshCwIcon,
@@ -23,6 +24,7 @@ import {
   VideoIcon,
   ScissorsIcon,
   CaptionsIcon,
+  type LucideIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -92,6 +94,18 @@ type PendingDownload = {
 
 function playlistEntryKey(entry: PlaylistEntry) {
   return `${entry.index}:${entry.id}`
+}
+
+const navigationItems = [
+  { value: "download", label: "Download", shortLabel: "Save", icon: LinkIcon, accent: "accent-blue" },
+  { value: "playlist", label: "Playlist", shortLabel: "Playlist", icon: ListMusicIcon, accent: "accent-violet" },
+  { value: "history", label: "History", shortLabel: "History", icon: HistoryIcon, accent: "accent-mint" },
+  { value: "settings", label: "Settings", shortLabel: "Settings", icon: SettingsIcon, accent: "accent-orange" },
+  { value: "help", label: "Help", shortLabel: "Help", icon: InfoIcon, accent: "text-muted-foreground" },
+] as const
+
+function tabTitle(value: string) {
+  return navigationItems.find((item) => item.value === value)?.label ?? "Download"
 }
 
 function App() {
@@ -269,6 +283,9 @@ function App() {
   const platform = useMemo(() => detectPlatform(url), [url])
   const urlValidation = useMemo(() => (url.trim() ? validateMediaUrl(url) : null), [url])
   const playlistValidation = useMemo(() => (playlistUrl.trim() ? validateMediaUrl(playlistUrl) : null), [playlistUrl])
+  const activeDownloads = downloads.filter((item) => ["waiting", "downloading", "converting"].includes(item.status)).length
+  const completedDownloads = downloads.filter((item) => item.status === "completed").length
+  const toolsReady = Boolean(toolStatus?.ytDlp.ready && toolStatus?.ffmpeg.ready)
 
   async function handleInspect() {
     setError("")
@@ -552,48 +569,29 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="app-backdrop text-foreground">
       <Toaster />
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl">
-        <aside className="sticky top-0 hidden h-screen w-64 shrink-0 overflow-y-auto border-r bg-muted/30 p-5 md:flex md:flex-col md:gap-6">
-          <div className="flex items-center gap-3">
-            <div className="size-10 overflow-hidden rounded-lg bg-primary">
-              <img className="size-full object-cover" src={unmuzeIcon} alt="" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold tracking-normal">Unmuze</h1>
-              <p className="text-sm text-muted-foreground">Local media saver</p>
-            </div>
-          </div>
-          <Tabs value={tab} onValueChange={setTab}>
-            <TabsList className="grid h-auto w-full grid-cols-1 bg-transparent p-0">
-              <TabsTrigger value="download" className="justify-start"><LinkIcon data-icon="inline-start" />Download</TabsTrigger>
-              <TabsTrigger value="playlist" className="justify-start"><ListMusicIcon data-icon="inline-start" />Playlist</TabsTrigger>
-              <TabsTrigger value="history" className="justify-start"><HistoryIcon data-icon="inline-start" />History</TabsTrigger>
-              <TabsTrigger value="settings" className="justify-start"><SettingsIcon data-icon="inline-start" />Settings</TabsTrigger>
-              <TabsTrigger value="help" className="justify-start"><InfoIcon data-icon="inline-start" />Help</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </aside>
+      <div className="app-shell mx-auto flex w-full max-w-[1500px]">
+        <DesktopSidebar
+          tab={tab}
+          setTab={setTab}
+          settings={settings}
+          onSaveSettings={handleSaveSettings}
+          activeDownloads={activeDownloads}
+          completedDownloads={completedDownloads}
+          toolsReady={toolsReady}
+        />
 
         <main className="flex min-w-0 flex-1 flex-col">
-          <header className="flex flex-col items-start gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between md:hidden">
-            <div className="flex items-center gap-2 font-semibold">
-              <img className="size-7 rounded-md object-cover" src={unmuzeIcon} alt="" />
-              Unmuze
-            </div>
-            <Tabs value={tab} onValueChange={setTab} className="w-full sm:w-auto">
-              <TabsList className="w-full justify-start overflow-x-auto sm:w-auto">
-                <TabsTrigger value="download">Save</TabsTrigger>
-                <TabsTrigger value="playlist">Playlist</TabsTrigger>
-                <TabsTrigger value="history">History</TabsTrigger>
-                <TabsTrigger value="settings">Settings</TabsTrigger>
-                <TabsTrigger value="help">Help</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </header>
+          <MobileHeader tab={tab} setTab={setTab} />
+          <WorkbenchHeader
+            tab={tab}
+            activeDownloads={activeDownloads}
+            completedDownloads={completedDownloads}
+            toolsReady={toolsReady}
+          />
 
-          <div className="flex-1 p-5 md:p-8">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
             <Tabs value={tab} onValueChange={setTab} className="gap-0">
               <TabsContent value="download">
                 <DownloadScreen
@@ -696,6 +694,191 @@ function App() {
   )
 }
 
+function DesktopSidebar({
+  tab,
+  setTab,
+  settings,
+  onSaveSettings,
+  activeDownloads,
+  completedDownloads,
+  toolsReady,
+}: {
+  tab: string
+  setTab: (value: string) => void
+  settings: Settings
+  onSaveSettings: (settings: Settings) => void
+  activeDownloads: number
+  completedDownloads: number
+  toolsReady: boolean
+}) {
+  return (
+    <aside className="hidden w-[300px] shrink-0 border-r bg-panel/70 p-5 lg:flex lg:flex-col lg:gap-5">
+      <div className="flex items-center gap-3 rounded-2xl p-2">
+        <div className="size-12 overflow-hidden rounded-2xl bg-primary shadow-lg">
+          <img className="size-full object-cover" src={unmuzeIcon} alt="" />
+        </div>
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold leading-tight tracking-normal">Unmuze</h1>
+          <p className="text-sm font-semibold text-muted-foreground">Save Workbench</p>
+        </div>
+      </div>
+
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="grid h-auto w-full grid-cols-1 gap-1 bg-transparent p-0 text-muted-foreground">
+          {navigationItems.map((item) => {
+            const Icon = item.icon
+            return (
+              <TabsTrigger key={item.value} value={item.value} className="h-12 justify-start px-4 text-[15px]">
+                <Icon className={item.accent} data-icon="inline-start" />
+                <span className="flex-1 text-left">{item.label}</span>
+              </TabsTrigger>
+            )
+          })}
+        </TabsList>
+      </Tabs>
+
+      <div className="soft-panel grid gap-3 rounded-2xl p-4">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Session</span>
+          <Badge variant={toolsReady ? "default" : "outline"}>{toolsReady ? "Tools ready" : "Tools needed"}</Badge>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <MetricTile label="Active" value={activeDownloads} tone="blue" />
+          <MetricTile label="Saved" value={completedDownloads} tone="mint" />
+        </div>
+      </div>
+
+      <ThemeSegmentedControl
+        value={settings.theme}
+        onChange={(theme) => onSaveSettings({ ...settings, theme })}
+      />
+
+    </aside>
+  )
+}
+
+function MobileHeader({ tab, setTab }: { tab: string; setTab: (value: string) => void }) {
+  return (
+    <header className="border-b bg-background/95 px-4 py-4 lg:hidden">
+      <div className="mb-3 flex items-center gap-2 font-bold">
+        <img className="size-8 rounded-xl object-cover" src={unmuzeIcon} alt="" />
+        <span>Unmuze</span>
+      </div>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="w-full justify-start overflow-x-auto">
+          {navigationItems.map((item) => (
+            <TabsTrigger key={item.value} value={item.value} className="shrink-0">
+              {item.shortLabel}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+    </header>
+  )
+}
+
+function WorkbenchHeader({
+  tab,
+  activeDownloads,
+  completedDownloads,
+  toolsReady,
+}: {
+  tab: string
+  activeDownloads: number
+  completedDownloads: number
+  toolsReady: boolean
+}) {
+  return (
+    <header className="hidden border-b bg-background/80 px-8 py-5 lg:block">
+      <div className="flex items-center justify-between gap-6">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Current view</p>
+          <h2 className="mt-1 text-2xl font-bold tracking-normal">{tabTitle(tab)}</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          <StatusChip
+            icon={toolsReady ? CheckCircleIcon : WrenchIcon}
+            label={toolsReady ? "Media tools ready" : "Media tools need attention"}
+            tone={toolsReady ? "mint" : "orange"}
+          />
+          <StatusChip icon={Clock3Icon} label={`${activeDownloads} active`} tone="blue" />
+          <StatusChip icon={DownloadIcon} label={`${completedDownloads} saved`} tone="violet" />
+        </div>
+      </div>
+    </header>
+  )
+}
+
+function MetricTile({ label, value, tone }: { label: string; value: number; tone: "blue" | "mint" }) {
+  const toneClass = tone === "mint" ? "accent-mint" : "accent-blue"
+  return (
+    <div className="rounded-xl bg-card/60 p-3">
+      <div className={`text-2xl font-bold ${toneClass}`}>{value}</div>
+      <div className="text-xs font-semibold text-muted-foreground">{label}</div>
+    </div>
+  )
+}
+
+function StatusChip({
+  icon: Icon,
+  label,
+  tone,
+}: {
+  icon: LucideIcon
+  label: string
+  tone: "blue" | "violet" | "mint" | "orange"
+}) {
+  const toneClass = {
+    blue: "accent-blue",
+    violet: "accent-violet",
+    mint: "accent-mint",
+    orange: "accent-orange",
+  }[tone]
+  return (
+    <div className="flex items-center gap-2 rounded-xl border bg-card/70 px-3 py-2 text-sm font-medium text-muted-foreground">
+      <Icon className={`size-4 ${toneClass}`} />
+      <span>{label}</span>
+    </div>
+  )
+}
+
+function ThemeSegmentedControl({
+  value,
+  onChange,
+}: {
+  value: Settings["theme"]
+  onChange: (value: Settings["theme"]) => void
+}) {
+  const options: Array<{ value: Settings["theme"]; label: string; icon?: LucideIcon }> = [
+    { value: "light", label: "Light", icon: SunIcon },
+    { value: "dark", label: "Dark", icon: MoonIcon },
+    { value: "system", label: "Auto" },
+  ]
+  return (
+    <div className="soft-panel rounded-2xl p-1">
+      <div className="grid grid-cols-3 gap-1">
+        {options.map((option) => {
+          const Icon = option.icon
+          return (
+            <button
+              key={option.value}
+              type="button"
+              className={`flex h-10 items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all ${
+                value === option.value ? "selected-pill text-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+              onClick={() => onChange(option.value)}
+              aria-pressed={value === option.value}
+            >
+              {Icon ? <Icon className="size-4" /> : null}
+              {option.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function DownloadScreen(props: {
   url: string
   setUrl: (value: string) => void
@@ -741,30 +924,21 @@ function DownloadScreen(props: {
     if (nextMode === "audio") props.setSaveSubtitles(false)
   }
   return (
-    <div className="flex flex-col gap-5">
-      <div>
-        <h2 className="text-2xl font-semibold tracking-normal">Download permitted media</h2>
-        <p className="text-sm text-muted-foreground">Paste a public YouTube, SoundCloud, or TikTok URL, inspect it, then save audio or video when allowed.</p>
-      </div>
-      <Alert>
-        <ShieldCheckIcon data-icon="inline-start" />
-        <AlertTitle>Legal-use notice</AlertTitle>
-        <AlertDescription>You are responsible for having the rights to download content. Unmuze does not bypass DRM, paywalls, login requirements, encryption, region locks, or other access controls.</AlertDescription>
-      </Alert>
+    <div className="flex flex-col gap-6">
       <ToolNotice status={props.toolStatus} onOpenSettings={props.onOpenSettings} />
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <Card>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
+        <Card className="overflow-hidden">
           <CardHeader>
-            <CardTitle>Media URL</CardTitle>
+            <CardTitle className="text-lg">Media URL</CardTitle>
             <CardDescription>Supported: permitted public YouTube, SoundCloud, and individual TikTok video URLs. Spotify links are explained but not downloaded.</CardDescription>
           </CardHeader>
           <CardContent>
             <FieldGroup>
               <Field data-invalid={Boolean(props.validationMessage)}>
                 <FieldLabel htmlFor="media-url">URL</FieldLabel>
-                <div className="flex gap-2">
-                  <Input id="media-url" value={props.url} onChange={(event) => props.setUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." aria-invalid={Boolean(props.validationMessage)} />
-                  <Button onClick={props.onInspect} disabled={props.checking || !props.url.trim()}>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input className="h-12 text-base" id="media-url" value={props.url} onChange={(event) => props.setUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." aria-invalid={Boolean(props.validationMessage)} />
+                  <Button className="h-12 px-5" onClick={props.onInspect} disabled={props.checking || !props.url.trim()}>
                     {props.checking ? <Spinner /> : <SearchIcon data-icon="inline-start" />}
                     Check
                   </Button>
@@ -782,9 +956,9 @@ function DownloadScreen(props: {
             </FieldGroup>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="xl:sticky xl:top-6 xl:self-start">
           <CardHeader>
-            <CardTitle>Save options</CardTitle>
+            <CardTitle className="text-lg">Save options</CardTitle>
             <CardDescription>Invalid combinations are disabled automatically.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -792,10 +966,10 @@ function DownloadScreen(props: {
               <Field>
                 <FieldLabel>Format</FieldLabel>
                 <div className="grid grid-cols-2 gap-2">
-                  <Button variant={props.mode === "audio" ? "default" : "outline"} onClick={() => changeMode("audio")} disabled={!canDownload}>
+                  <Button className="h-12" variant={props.mode === "audio" ? "default" : "outline"} onClick={() => changeMode("audio")} disabled={!canDownload}>
                     <MusicIcon data-icon="inline-start" />Audio
                   </Button>
-                  <Button variant={props.mode === "video" ? "default" : "outline"} onClick={() => changeMode("video")} disabled={!canDownload || !props.inspection?.formats.includes("video")}>
+                  <Button className="h-12" variant={props.mode === "video" ? "default" : "outline"} onClick={() => changeMode("video")} disabled={!canDownload || !props.inspection?.formats.includes("video")}>
                     <VideoIcon data-icon="inline-start" />Video
                   </Button>
                 </div>
@@ -859,7 +1033,7 @@ function DownloadScreen(props: {
                 subtitleLanguage={props.subtitleLanguage}
                 setSubtitleLanguage={props.setSubtitleLanguage}
               />
-              <Button onClick={props.onStartDownload} disabled={!canDownload}>
+              <Button className="h-12 w-full text-base" size="lg" onClick={props.onStartDownload} disabled={!canDownload}>
                 <DownloadIcon data-icon="inline-start" />
                 Save locally
               </Button>
@@ -919,30 +1093,21 @@ function PlaylistScreen(props: {
     : "Paste a YouTube playlist or SoundCloud set URL to begin."
   const playlistDownloads = props.downloads.filter((item) => item.playlistTitle)
   return (
-    <div className="flex flex-col gap-5">
-      <div>
-        <h2 className="text-2xl font-semibold tracking-normal">Download a playlist</h2>
-        <p className="text-sm text-muted-foreground">Paste a public YouTube playlist or SoundCloud set, choose items, then save them with per-item progress.</p>
-      </div>
-      <Alert>
-        <ShieldCheckIcon data-icon="inline-start" />
-        <AlertTitle>Legal-use notice</AlertTitle>
-        <AlertDescription>You are responsible for having the rights to download playlist items. Unmuze only downloads selected public entries and does not bypass protected access.</AlertDescription>
-      </Alert>
+    <div className="flex flex-col gap-6">
       <ToolNotice status={props.toolStatus} onOpenSettings={props.onOpenSettings} />
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
         <Card>
           <CardHeader>
-            <CardTitle>Playlist URL</CardTitle>
+            <CardTitle className="text-lg">Playlist URL</CardTitle>
             <CardDescription>Supported: public YouTube playlists and SoundCloud sets available to local yt-dlp.</CardDescription>
           </CardHeader>
           <CardContent>
             <FieldGroup>
               <Field data-invalid={Boolean(props.validationMessage)}>
                 <FieldLabel htmlFor="playlist-url">URL</FieldLabel>
-                <div className="flex gap-2">
-                  <Input id="playlist-url" value={props.url} onChange={(event) => props.setUrl(event.target.value)} placeholder="https://www.youtube.com/playlist?list=..." aria-invalid={Boolean(props.validationMessage)} />
-                  <Button onClick={props.onInspect} disabled={props.checking || !props.url.trim()}>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input className="h-12 text-base" id="playlist-url" value={props.url} onChange={(event) => props.setUrl(event.target.value)} placeholder="https://www.youtube.com/playlist?list=..." aria-invalid={Boolean(props.validationMessage)} />
+                  <Button className="h-12 px-5" onClick={props.onInspect} disabled={props.checking || !props.url.trim()}>
                     {props.checking ? <Spinner /> : <SearchIcon data-icon="inline-start" />}
                     Check
                   </Button>
@@ -960,9 +1125,9 @@ function PlaylistScreen(props: {
             </FieldGroup>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="xl:sticky xl:top-6 xl:self-start">
           <CardHeader>
-            <CardTitle>Playlist options</CardTitle>
+            <CardTitle className="text-lg">Playlist options</CardTitle>
             <CardDescription>Each selected item is saved as its own file. Up to {props.concurrency} can run at once.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -970,10 +1135,10 @@ function PlaylistScreen(props: {
               <Field>
                 <FieldLabel>Format</FieldLabel>
                 <div className="grid grid-cols-2 gap-2">
-                  <Button variant={props.mode === "audio" ? "default" : "outline"} onClick={() => changeMode("audio")} disabled={!props.inspection?.downloadable}>
+                  <Button className="h-12" variant={props.mode === "audio" ? "default" : "outline"} onClick={() => changeMode("audio")} disabled={!props.inspection?.downloadable}>
                     <MusicIcon data-icon="inline-start" />Audio
                   </Button>
-                  <Button variant={props.mode === "video" ? "default" : "outline"} onClick={() => changeMode("video")} disabled={!props.inspection?.downloadable || !canUseVideo}>
+                  <Button className="h-12" variant={props.mode === "video" ? "default" : "outline"} onClick={() => changeMode("video")} disabled={!props.inspection?.downloadable || !canUseVideo}>
                     <VideoIcon data-icon="inline-start" />Video
                   </Button>
                 </div>
@@ -1015,7 +1180,7 @@ function PlaylistScreen(props: {
                 subtitleLanguage={props.subtitleLanguage}
                 setSubtitleLanguage={props.setSubtitleLanguage}
               />
-              <Button onClick={props.onStartDownload} disabled={!canDownload}>
+              <Button className="h-12 w-full text-base" size="lg" onClick={props.onStartDownload} disabled={!canDownload}>
                 <DownloadIcon data-icon="inline-start" />
                 Save selected items
               </Button>
@@ -1043,10 +1208,10 @@ function PlaylistProgressSummary({ downloads }: { downloads: DownloadItem[] }) {
   const current = downloads.find((item) => ["downloading", "converting"].includes(item.status))
   const complete = total > 0 && completed + failed + cancelled === total
   return (
-    <Card>
+    <Card className={complete ? "" : "queue-active"}>
       <CardHeader className="flex-row items-start justify-between gap-4">
         <div>
-          <CardTitle>Playlist progress</CardTitle>
+          <CardTitle className="text-lg">Playlist progress</CardTitle>
           <CardDescription>
             {completed} of {total} items saved{failed ? ` · ${failed} failed` : ""}{cancelled ? ` · ${cancelled} cancelled` : ""}
           </CardDescription>
@@ -1087,10 +1252,10 @@ function DownloadAdvancedOptions(props: {
 }) {
   const subtitlesActive = props.saveSubtitles && props.canSaveSubtitles
   return (
-    <div className="flex flex-col gap-4 rounded-md border bg-card/40 p-4">
+    <div className="soft-panel flex flex-col gap-4 rounded-2xl p-4">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-card accent-orange">
             <ScissorsIcon className="size-5" />
           </div>
           <div className="min-w-0 space-y-1">
@@ -1103,7 +1268,7 @@ function DownloadAdvancedOptions(props: {
       <Separator />
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-card accent-blue">
             <CaptionsIcon className="size-5" />
           </div>
           <div className="min-w-0 space-y-1">
@@ -1114,7 +1279,7 @@ function DownloadAdvancedOptions(props: {
         <Switch className="mt-1" checked={subtitlesActive} onCheckedChange={props.setSaveSubtitles} disabled={!props.canSaveSubtitles} aria-label="Save subtitles" />
       </div>
       {subtitlesActive ? (
-        <Field className="ml-12 rounded-md border bg-background/60 p-3">
+        <Field className="ml-0 rounded-xl border bg-background/60 p-3 sm:ml-14">
           <FieldLabel htmlFor="subtitle-language">Subtitle language</FieldLabel>
           <Select id="subtitle-language" value={props.subtitleLanguage} onValueChange={props.setSubtitleLanguage}>
             <SelectGroup>
@@ -1133,7 +1298,7 @@ function DownloadAdvancedOptions(props: {
 function ToolNotice({ status, onOpenSettings }: { status: ToolStatus | null; onOpenSettings: () => void }) {
   if (!status || status.ready) return null
   return (
-    <Alert>
+    <Alert className="soft-panel">
       <WrenchIcon data-icon="inline-start" />
       <AlertTitle>Media tools need setup</AlertTitle>
       <AlertDescription className="flex flex-col gap-3">
@@ -1149,14 +1314,14 @@ function ToolNotice({ status, onOpenSettings }: { status: ToolStatus | null; onO
 function PlaylistSummary({ inspection, selectedCount, onToggleAll }: { inspection: PlaylistInspection; selectedCount: number; onToggleAll: (checked: boolean) => void }) {
   const totalDuration = inspection.entries.reduce((sum, entry) => sum + (entry.duration || 0), 0)
   return (
-    <Card>
+    <Card className="bg-selected/40">
       <CardContent className="flex flex-wrap items-center justify-between gap-4 pt-5">
         <div className="min-w-0">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Badge variant={inspection.downloadable ? "default" : "secondary"}>{platformLabel(inspection.platform)}</Badge>
             <Badge variant="outline">{inspection.entries.length} items</Badge>
           </div>
-          <h3 className="truncate text-lg font-semibold tracking-normal">{inspection.title || "Playlist"}</h3>
+          <h3 className="truncate text-xl font-bold tracking-normal">{inspection.title || "Playlist"}</h3>
           <p className="text-sm text-muted-foreground">{inspection.creator || "Creator unavailable"} · {formatDuration(totalDuration)}</p>
         </div>
         <div className="flex gap-2">
@@ -1172,24 +1337,24 @@ function PlaylistEntryList({ entries, selectedIds, onToggleEntry }: { entries: P
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Playlist items</CardTitle>
+        <CardTitle className="text-lg">Playlist items</CardTitle>
         <CardDescription>{selectedIds.size} of {entries.length} selected.</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="max-h-[460px] overflow-auto rounded-md border">
+        <div className="max-h-[520px] overflow-auto rounded-2xl border bg-card/40 p-2">
           {entries.map((entry) => (
-            <label key={`${entry.id}-${entry.index}`} className="flex cursor-pointer items-center gap-3 border-b p-3 last:border-b-0 hover:bg-muted/50">
+            <label key={`${entry.id}-${entry.index}`} className={`flex cursor-pointer items-center gap-3 rounded-xl p-3 transition-all hover:bg-muted/70 ${selectedIds.has(playlistEntryKey(entry)) ? "selected-pill" : ""}`}>
               <input
                 className="size-4 accent-primary"
                 type="checkbox"
                 checked={selectedIds.has(playlistEntryKey(entry))}
                 onChange={(event) => onToggleEntry(playlistEntryKey(entry), event.target.checked)}
               />
-              {entry.thumbnail ? <img className="h-12 w-16 rounded object-cover" src={entry.thumbnail} alt="" /> : <div className="flex h-12 w-16 items-center justify-center rounded bg-muted"><MusicIcon className="size-4" /></div>}
+              {entry.thumbnail ? <img className="h-14 w-20 rounded-xl object-cover" src={entry.thumbnail} alt="" /> : <div className="flex h-14 w-20 items-center justify-center rounded-xl bg-muted"><MusicIcon className="size-4" /></div>}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">{entry.index.toString().padStart(2, "0")}</span>
-                  <span className="truncate font-medium">{entry.title}</span>
+                  <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs font-semibold text-muted-foreground">{entry.index.toString().padStart(2, "0")}</span>
+                  <span className="truncate font-semibold">{entry.title}</span>
                 </div>
                 <p className="truncate text-sm text-muted-foreground">{entry.creator || "Creator unavailable"} · {formatDuration(entry.duration)}</p>
               </div>
@@ -1203,13 +1368,13 @@ function PlaylistEntryList({ entries, selectedIds, onToggleEntry }: { entries: P
 
 function InspectionSkeleton() {
   return (
-    <Card>
+    <Card className="overflow-hidden">
       <CardContent className="flex gap-4 pt-5">
-        <Skeleton className="h-24 w-36" />
+        <Skeleton className="h-24 w-36 rounded-2xl" />
         <div className="flex flex-1 flex-col gap-3">
-          <Skeleton className="h-5 w-3/4" />
-          <Skeleton className="h-4 w-1/2" />
-          <Skeleton className="h-4 w-1/3" />
+          <Skeleton className="h-5 w-3/4 rounded-full" />
+          <Skeleton className="h-4 w-1/2 rounded-full" />
+          <Skeleton className="h-4 w-1/3 rounded-full" />
         </div>
       </CardContent>
     </Card>
@@ -1218,15 +1383,15 @@ function InspectionSkeleton() {
 
 function InspectionCard({ inspection }: { inspection: Inspection }) {
   return (
-    <Card>
-      <CardContent className="flex gap-4 pt-5">
-        {inspection.thumbnail ? <img className="h-24 w-36 rounded-md object-cover" src={inspection.thumbnail} alt="" /> : <div className="flex h-24 w-36 items-center justify-center rounded-md bg-muted"><MusicIcon /></div>}
+    <Card className="bg-selected/35">
+      <CardContent className="flex flex-col gap-4 pt-5 sm:flex-row">
+        {inspection.thumbnail ? <img className="h-28 w-full rounded-2xl object-cover sm:w-40" src={inspection.thumbnail} alt="" /> : <div className="flex h-28 w-full items-center justify-center rounded-2xl bg-muted sm:w-40"><MusicIcon /></div>}
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={inspection.downloadable ? "default" : "secondary"}>{platformLabel(inspection.platform)}</Badge>
             <Badge variant="outline">{inspection.downloadable ? "Downloadable when permitted" : "Not downloadable"}</Badge>
           </div>
-          <h3 className="truncate text-lg font-semibold tracking-normal">{inspection.title || "Metadata unavailable"}</h3>
+          <h3 className="truncate text-xl font-bold tracking-normal">{inspection.title || "Metadata unavailable"}</h3>
           <p className="text-sm text-muted-foreground">{inspection.creator || "Creator unavailable"} · {formatDuration(inspection.duration)}</p>
         </div>
       </CardContent>
@@ -1238,16 +1403,22 @@ function DownloadManager({ downloads, onCancel }: { downloads: DownloadItem[]; o
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Download manager</CardTitle>
+        <CardTitle className="text-lg">Download manager</CardTitle>
         <CardDescription>Active and recent downloads for this session.</CardDescription>
       </CardHeader>
       <CardContent>
         {downloads.length === 0 ? (
-          <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">No active downloads.</div>
+          <div className="flex min-h-36 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed bg-card/40 p-6 text-center text-sm text-muted-foreground">
+            <DownloadIcon className="size-8 accent-blue" />
+            <div>
+              <p className="font-semibold text-foreground">Queue is clear</p>
+              <p>No active downloads yet. Inspect a URL and start a local save.</p>
+            </div>
+          </div>
         ) : (
           <div className="flex flex-col gap-3">
             {downloads.map((item) => (
-              <div key={item.id} className="rounded-md border p-4">
+              <div key={item.id} className={`rounded-2xl border bg-card/55 p-4 transition-all ${["downloading", "converting"].includes(item.status) ? "queue-active shadow-sm" : ""}`}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -1256,9 +1427,9 @@ function DownloadManager({ downloads, onCancel }: { downloads: DownloadItem[]; o
                       {item.selectedFormatId ? <Badge variant="outline">Format {item.selectedFormatId}</Badge> : null}
                       {item.splitChapters ? <Badge variant="outline">Chapters</Badge> : null}
                       {item.saveSubtitles ? <Badge variant="outline">Subs {item.subtitleLanguage || "en"}</Badge> : null}
-                      <span className="min-w-0 flex-1 truncate font-medium">{item.title}</span>
+                      <span className="min-w-0 flex-1 truncate font-semibold">{item.title}</span>
                     </div>
-                    <p className="mt-1 text-sm text-muted-foreground">{item.playlistTitle ? `${item.playlistTitle} · ` : ""}{item.message}</p>
+                    <p className="mt-1 text-sm font-medium text-muted-foreground">{item.playlistTitle ? `${item.playlistTitle} · ` : ""}{item.message}</p>
                   </div>
                   <div className="flex gap-2">
                     {["downloading", "converting"].includes(item.status) ? (
@@ -1286,16 +1457,22 @@ function HistoryScreen({ history, setHistory }: { history: HistoryItem[]; setHis
     <Card>
       <CardHeader className="flex-row items-center justify-between">
         <div>
-          <CardTitle>History</CardTitle>
+          <CardTitle className="text-lg">History</CardTitle>
           <CardDescription>Completed downloads stored locally on this device.</CardDescription>
         </div>
         <Button variant="outline" onClick={clearHistory}>Clear</Button>
       </CardHeader>
       <CardContent>
         {history.length === 0 ? (
-          <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">No completed downloads yet.</div>
+          <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed bg-card/40 p-6 text-center text-sm text-muted-foreground">
+            <HistoryIcon className="size-8 accent-mint" />
+            <div>
+              <p className="font-semibold text-foreground">No completed downloads yet</p>
+              <p>Saved media will appear here with local open actions.</p>
+            </div>
+          </div>
         ) : (
-          <div className="overflow-x-auto rounded-md border">
+          <div className="overflow-x-auto rounded-2xl border bg-card/50">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1360,21 +1537,17 @@ function SettingsScreen({
 }) {
   const managedToolsInstalled = Boolean(toolStatus?.ytDlp.managedInstalled && toolStatus?.ffmpeg.managedInstalled)
   return (
-    <div className="grid gap-5 lg:grid-cols-2">
+    <div className="grid gap-6 xl:grid-cols-2">
       <Card>
         <CardHeader>
-          <CardTitle>Preferences</CardTitle>
+          <CardTitle className="text-lg">Preferences</CardTitle>
           <CardDescription>Stored only on this computer.</CardDescription>
         </CardHeader>
         <CardContent>
           <FieldGroup>
             <Field>
               <FieldLabel>Theme</FieldLabel>
-              <div className="grid grid-cols-3 gap-2">
-                <Button variant={settings.theme === "light" ? "default" : "outline"} onClick={() => onSave({ ...settings, theme: "light" })}><SunIcon data-icon="inline-start" />Light</Button>
-                <Button variant={settings.theme === "dark" ? "default" : "outline"} onClick={() => onSave({ ...settings, theme: "dark" })}><MoonIcon data-icon="inline-start" />Dark</Button>
-                <Button variant={settings.theme === "system" ? "default" : "outline"} onClick={() => onSave({ ...settings, theme: "system" })}>System</Button>
-              </div>
+              <ThemeSegmentedControl value={settings.theme} onChange={(theme) => onSave({ ...settings, theme })} />
             </Field>
             <Field>
               <FieldLabel htmlFor="settings-default-format">Default format</FieldLabel>
@@ -1430,7 +1603,7 @@ function SettingsScreen({
               </Select>
               <FieldDescription>Controls how many playlist items can download at the same time.</FieldDescription>
             </Field>
-            <div className="flex items-center justify-between gap-3 rounded-md border p-4">
+            <div className="soft-panel flex items-center justify-between gap-3 rounded-2xl p-4">
               <div>
                 <FieldLabel>Keep download history</FieldLabel>
                 <FieldDescription>History contains titles and local file paths only.</FieldDescription>
@@ -1442,12 +1615,12 @@ function SettingsScreen({
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>App updates</CardTitle>
+          <CardTitle className="text-lg">App updates</CardTitle>
           <CardDescription>Check GitHub Releases and install signed updates from inside Unmuze.</CardDescription>
         </CardHeader>
         <CardContent>
           <FieldGroup>
-            <div className="rounded-md border p-4">
+            <div className="soft-panel rounded-2xl p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <FieldLabel>Current version</FieldLabel>
@@ -1474,7 +1647,7 @@ function SettingsScreen({
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>Media tools</CardTitle>
+          <CardTitle className="text-lg">Media tools</CardTitle>
           <CardDescription>Install local managed copies of yt-dlp and FFmpeg.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -1485,7 +1658,7 @@ function SettingsScreen({
                 <ToolStatusRow tool={toolStatus.ffmpeg} />
               </>
             ) : (
-              <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+              <div className="rounded-2xl border border-dashed bg-card/40 p-4 text-sm text-muted-foreground">
                 {toolsLoading ? "Checking media tools..." : "Tool status has not been checked yet."}
               </div>
             )}
@@ -1503,26 +1676,13 @@ function SettingsScreen({
           </FieldGroup>
         </CardContent>
       </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Download boundaries</CardTitle>
-          <CardDescription>Protected access stays unavailable.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Alert>
-            <ShieldCheckIcon data-icon="inline-start" />
-            <AlertTitle>User responsibility</AlertTitle>
-            <AlertDescription>Only download content when permitted by the source, your rights, and the platform terms. The app refuses protected platforms and access-controlled URLs.</AlertDescription>
-          </Alert>
-        </CardContent>
-      </Card>
     </div>
   )
 }
 
 function ToolStatusRow({ tool }: { tool: ToolStatus["ytDlp"] }) {
   return (
-    <div className="rounded-md border p-4">
+    <div className="soft-panel rounded-2xl p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -1543,13 +1703,13 @@ function ToolStatusRow({ tool }: { tool: ToolStatus["ytDlp"] }) {
 
 function HelpScreen() {
   return (
-    <div className="grid gap-5 lg:grid-cols-2">
+    <div className="grid gap-6 lg:grid-cols-2">
       <Card>
         <CardHeader>
-          <CardTitle>What Unmuze does</CardTitle>
+          <CardTitle className="text-lg">What Unmuze does</CardTitle>
           <CardDescription>A local desktop tool for permitted public media saves.</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3 text-sm text-muted-foreground">
+        <CardContent className="flex flex-col gap-3 text-sm font-medium leading-6 text-muted-foreground">
           <p>Unmuze can install managed media tools locally, inspect supported public YouTube, SoundCloud, and TikTok URLs, and save audio or video where legally permitted.</p>
           <p>Playlist mode can save selected public items with a configurable concurrency limit, per-item progress, and cancellation.</p>
           <p>Audio and video presets cover common formats, and supported downloads can embed metadata, source URLs, and artwork.</p>
@@ -1559,10 +1719,10 @@ function HelpScreen() {
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>What Unmuze does not do</CardTitle>
+          <CardTitle className="text-lg">What Unmuze does not do</CardTitle>
           <CardDescription>Protected access stays protected.</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3 text-sm text-muted-foreground">
+        <CardContent className="flex flex-col gap-3 text-sm font-medium leading-6 text-muted-foreground">
           <p>It does not bypass DRM, paywalls, login restrictions, encryption, region locks, private links, or other access controls.</p>
           <p>Spotify tracks, albums, and playlists cannot be downloaded because Spotify does not expose downloadable media files for this kind of app.</p>
           <Separator />

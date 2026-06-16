@@ -10,11 +10,11 @@ function Field({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 function FieldLabel({ className, ...props }: React.ComponentProps<"label">) {
-  return <label className={cn("text-sm font-medium leading-none", className)} {...props} />
+  return <label className={cn("text-sm font-semibold leading-none", className)} {...props} />
 }
 
 function FieldDescription({ className, ...props }: React.ComponentProps<"p">) {
-  return <p className={cn("text-sm text-muted-foreground", className)} {...props} />
+  return <p className={cn("text-sm font-medium leading-5 text-muted-foreground", className)} {...props} />
 }
 
 export { Field, FieldGroup, FieldLabel, FieldDescription }

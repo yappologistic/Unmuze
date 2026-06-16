@@ -8,14 +8,14 @@ function Switch({ checked, onCheckedChange, className, ...props }: Omit<React.Co
       role="switch"
       aria-checked={checked}
       className={cn(
-        "inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-border bg-muted p-0.5 transition-colors data-[state=checked]:border-primary data-[state=checked]:bg-primary disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex h-7 w-12 shrink-0 items-center rounded-full border border-border bg-muted p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=checked]:border-primary data-[state=checked]:bg-primary disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
       data-state={checked ? "checked" : "unchecked"}
       onClick={() => onCheckedChange?.(!checked)}
       {...props}
     >
-      <span className={cn("pointer-events-none block size-5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform dark:bg-zinc-100", checked ? "translate-x-5" : "translate-x-0")} />
+      <span className={cn("pointer-events-none block size-6 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform dark:bg-zinc-100", checked ? "translate-x-5" : "translate-x-0")} />
     </button>
   )
 }
