@@ -1385,16 +1385,18 @@ function InspectionSkeleton() {
 
 function InspectionCard({ inspection }: { inspection: Inspection }) {
   return (
-    <Card className="bg-selected/35">
-      <CardContent className="flex flex-col gap-4 pt-5 sm:flex-row">
-        {inspection.thumbnail ? <img className="h-28 w-full rounded-2xl object-cover sm:w-40" src={inspection.thumbnail} alt="" /> : <div className="flex h-28 w-full items-center justify-center rounded-2xl bg-muted sm:w-40"><MusicIcon /></div>}
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
+    <Card className="overflow-hidden bg-selected/35">
+      <CardContent className="grid gap-5 p-5 sm:grid-cols-[minmax(14rem,16rem)_1fr] sm:items-center sm:p-6">
+        {inspection.thumbnail ? <img className="aspect-video w-full rounded-2xl object-cover" src={inspection.thumbnail} alt="" /> : <div className="flex aspect-video w-full items-center justify-center rounded-2xl bg-muted"><MusicIcon /></div>}
+        <div className="flex min-w-0 flex-col justify-center gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={inspection.downloadable ? "default" : "secondary"}>{platformLabel(inspection.platform)}</Badge>
             <Badge variant="outline">{inspection.downloadable ? "Downloadable when permitted" : "Not downloadable"}</Badge>
           </div>
-          <h3 className="truncate text-xl font-bold tracking-normal">{inspection.title || "Metadata unavailable"}</h3>
-          <p className="text-sm text-muted-foreground">{inspection.creator || "Creator unavailable"} · {formatDuration(inspection.duration)}</p>
+          <div className="grid gap-1">
+            <h3 className="text-2xl font-bold leading-tight tracking-normal">{inspection.title || "Metadata unavailable"}</h3>
+            <p className="text-sm font-medium text-muted-foreground">{inspection.creator || "Creator unavailable"} · {formatDuration(inspection.duration)}</p>
+          </div>
         </div>
       </CardContent>
     </Card>
