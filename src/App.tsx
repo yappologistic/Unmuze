@@ -149,6 +149,7 @@ function App() {
   const activePlaylistDownloadIdsRef = useRef<Set<string>>(new Set())
   const playlistDownloadIdsRef = useRef<Set<string>>(new Set())
   const cancelledQueuedIdsRef = useRef<Set<string>>(new Set())
+  const contentScrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     loadSettings()
@@ -186,6 +187,7 @@ function App() {
   }, [settings.theme])
 
   useEffect(() => {
+    contentScrollRef.current?.scrollTo({ top: 0, left: 0 })
     window.scrollTo({ top: 0, left: 0 })
   }, [tab])
 
@@ -571,7 +573,7 @@ function App() {
   return (
     <div className="app-backdrop text-foreground">
       <Toaster />
-      <div className="app-shell mx-auto flex w-full max-w-[1500px]">
+      <div className="app-shell flex w-full">
         <DesktopSidebar
           tab={tab}
           setTab={setTab}
@@ -582,7 +584,7 @@ function App() {
           toolsReady={toolsReady}
         />
 
-        <main className="flex min-w-0 flex-1 flex-col">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <MobileHeader tab={tab} setTab={setTab} />
           <WorkbenchHeader
             tab={tab}
@@ -591,7 +593,7 @@ function App() {
             toolsReady={toolsReady}
           />
 
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+          <div ref={contentScrollRef} className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
             <Tabs value={tab} onValueChange={setTab} className="gap-0">
               <TabsContent value="download">
                 <DownloadScreen

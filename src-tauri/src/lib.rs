@@ -352,22 +352,24 @@ fn ffmpeg_location_arg(app: &AppHandle) -> Option<String> {
 }
 
 fn command_version(command: &str) -> Option<String> {
-    tool_command(command)
-        .arg("--version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| {
-            String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .next()
-                .unwrap_or("")
-                .to_string()
-        })
-        .filter(|line| !line.is_empty())
+    ["--version", "-version"].into_iter().find_map(|version_arg| {
+        tool_command(command)
+            .arg(version_arg)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| {
+                String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .to_string()
+            })
+            .filter(|line| !line.is_empty())
+    })
 }
 
 fn tool_detail(app: &AppHandle, tool: &str, label: &str) -> AppResult<ToolDetail> {
