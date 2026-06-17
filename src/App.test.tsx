@@ -379,6 +379,38 @@ describe("Library screen", () => {
     expect(vi.mocked(startDownload)).not.toHaveBeenCalled()
   })
 
+  it("lets users remove waiting playlist items before they start", async () => {
+    testSettings.playlistConcurrency = 1
+    vi.mocked(inspectPlaylist).mockResolvedValueOnce({
+      platform: "youTube",
+      downloadable: true,
+      title: "Queue Control Playlist",
+      creator: "Codex Channel",
+      entries: [
+        { id: "a", url: "https://www.youtube.com/watch?v=a", title: "First Song", index: 1, duration: 90 },
+        { id: "b", url: "https://www.youtube.com/watch?v=b", title: "Second Song", index: 2, duration: 120 },
+      ],
+    })
+    vi.mocked(startDownload).mockResolvedValue("C:\\tmp\\Queue Control Playlist\\01 - First Song.mp3")
+    render(<App />)
+
+    fireEvent.click(screen.getAllByRole("tab", { name: "Playlist" })[0])
+    fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://www.youtube.com/playlist?list=queuecontrol" } })
+    fireEvent.click(screen.getByRole("button", { name: "Check" }))
+    expect(await screen.findByText("Queue Control Playlist")).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText("Output folder"), { target: { value: "C:\\tmp" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save selected items" }))
+
+    expect(await screen.findByRole("button", { name: "Remove" })).toBeInTheDocument()
+    expect(vi.mocked(startDownload)).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }))
+
+    await waitFor(() => expect(screen.getByText("cancelled")).toBeInTheDocument())
+    expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument()
+    expect(vi.mocked(startDownload)).toHaveBeenCalledTimes(1)
+  })
+
   it("shows inline output folder validation before queueing playlist downloads", async () => {
     vi.mocked(inspectPlaylist).mockResolvedValueOnce({
       platform: "youTube",

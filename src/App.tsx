@@ -1590,6 +1590,9 @@ function DownloadManager({ downloads, onCancel }: { downloads: DownloadItem[]; o
                     <p className="mt-1 text-sm font-medium text-muted-foreground">{item.playlistTitle ? `${item.playlistTitle} · ` : ""}{item.message}</p>
                   </div>
                   <div className="flex flex-wrap gap-2 lg:justify-end">
+                    {item.status === "waiting" ? (
+                      <Button variant="outline" size="sm" onClick={() => onCancel(item.id)}><XIcon data-icon="inline-start" />Remove</Button>
+                    ) : null}
                     {["downloading", "converting"].includes(item.status) ? (
                       <Button variant="outline" size="sm" onClick={() => onCancel(item.id)}><SquareIcon data-icon="inline-start" />Cancel</Button>
                     ) : null}
