@@ -21,7 +21,10 @@ The app is local-first. It does not require an account, does not use a cloud bac
 - Embeds title, uploader/artist metadata, source URL, and thumbnail artwork when the selected output format supports it.
 - Can split chaptered videos, podcasts, lectures, or albums into separate files by chapter.
 - Can save manual subtitles or auto-generated captions as SRT sidecar files for video downloads.
-- Shows progress, cancellation, completed downloads, and a searchable local Library.
+- Shows progress, cancellation, completed downloads, and a searchable local Library with thumbnails, source metadata, format details, path status, and playlist grouping.
+- Supports platform-specific default format and preset choices for YouTube, SoundCloud, and TikTok.
+- Can place playlist downloads in a sanitized playlist-named folder.
+- Provides completed-download actions to open saved files or reveal their containing folder.
 - Supports light, dark, and system theme settings.
 - Checks for Tauri signature-verified app updates from inside Settings.
 
