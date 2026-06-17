@@ -1030,13 +1030,13 @@ function DownloadScreen(props: {
               <Field data-invalid={Boolean(props.validationMessage)}>
                 <FieldLabel htmlFor="media-url">URL</FieldLabel>
                 <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input className="h-12 text-base" id="media-url" value={props.url} onChange={(event) => props.setUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." aria-invalid={Boolean(props.validationMessage)} />
+                  <Input className="h-12 text-base" id="media-url" value={props.url} onChange={(event) => props.setUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." aria-invalid={Boolean(props.validationMessage)} aria-describedby="media-url-description" />
                   <Button className="h-12 px-5" onClick={props.onInspect} disabled={props.checking || !props.url.trim()}>
                     {props.checking ? <Spinner /> : <SearchIcon data-icon="inline-start" />}
                     Check
                   </Button>
                 </div>
-                <FieldDescription>{props.validationMessage || `Detected: ${platformLabel(props.platform)}`}</FieldDescription>
+                <FieldDescription id="media-url-description">{props.validationMessage || `Detected: ${platformLabel(props.platform)}`}</FieldDescription>
               </Field>
               {props.error ? (
                 <Alert variant={props.inspection?.platform === "spotify" ? "default" : "destructive"}>
@@ -1217,13 +1217,13 @@ function PlaylistScreen(props: {
               <Field data-invalid={Boolean(props.validationMessage)}>
                 <FieldLabel htmlFor="playlist-url">URL</FieldLabel>
                 <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input className="h-12 text-base" id="playlist-url" value={props.url} onChange={(event) => props.setUrl(event.target.value)} placeholder="https://www.youtube.com/playlist?list=..." aria-invalid={Boolean(props.validationMessage)} />
+                  <Input className="h-12 text-base" id="playlist-url" value={props.url} onChange={(event) => props.setUrl(event.target.value)} placeholder="https://www.youtube.com/playlist?list=..." aria-invalid={Boolean(props.validationMessage)} aria-describedby="playlist-url-description" />
                   <Button className="h-12 px-5" onClick={props.onInspect} disabled={props.checking || !props.url.trim()}>
                     {props.checking ? <Spinner /> : <SearchIcon data-icon="inline-start" />}
                     Check
                   </Button>
                 </div>
-                <FieldDescription>{playlistHint}</FieldDescription>
+                <FieldDescription id="playlist-url-description">{playlistHint}</FieldDescription>
               </Field>
               {props.error ? (
                 <Alert variant={props.inspection?.platform === "spotify" ? "default" : "destructive"}>

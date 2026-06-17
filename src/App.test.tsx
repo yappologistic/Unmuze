@@ -189,6 +189,21 @@ describe("Library screen", () => {
     })
   })
 
+  it("connects URL fields to their helper or validation descriptions", async () => {
+    await act(async () => {
+      render(<App />)
+    })
+
+    const mediaDescription = screen.getByLabelText("URL").getAttribute("aria-describedby")
+    expect(mediaDescription).toBeTruthy()
+    expect(document.getElementById(mediaDescription || "")).toHaveTextContent("Detected:")
+
+    fireEvent.click(screen.getAllByRole("tab", { name: "Playlist" })[0])
+    const playlistDescription = screen.getByLabelText("URL").getAttribute("aria-describedby")
+    expect(playlistDescription).toBeTruthy()
+    expect(document.getElementById(playlistDescription || "")).toHaveTextContent("Paste a YouTube playlist")
+  })
+
   it("filters by search, platform, and grouping without losing reset recovery", async () => {
     render(<App />)
 
