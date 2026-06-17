@@ -51,6 +51,8 @@ struct DownloadRequest {
     output_dir: String,
     file_name: String,
     #[serde(default)]
+    playlist_folder_name: Option<String>,
+    #[serde(default)]
     selected_format_id: Option<String>,
     #[serde(default)]
     split_chapters: bool,
@@ -75,6 +77,8 @@ struct Settings {
     platform_defaults: Option<PlatformDefaults>,
     #[serde(default = "default_playlist_concurrency")]
     playlist_concurrency: u8,
+    #[serde(default)]
+    playlist_folder_mode: bool,
     #[serde(default = "default_keep_history")]
     keep_history: bool,
 }
@@ -636,25 +640,54 @@ fn sanitize_filename(input: &str) -> String {
     cleaned.chars().take(120).collect()
 }
 
-fn safe_output_path(output_dir: &str, file_name: &str) -> AppResult<PathBuf> {
-    let dir = PathBuf::from(output_dir);
-    if !dir.is_dir() {
+fn safe_output_path(
+    output_dir: &str,
+    file_name: &str,
+    playlist_folder_name: Option<&str>,
+) -> AppResult<PathBuf> {
+    let base_dir = PathBuf::from(output_dir);
+    if !base_dir.is_dir() {
         return Err(user_error(
             "The selected output folder is not available.",
             "Choose an existing folder you can write to.",
         ));
     }
-    let safe_name = sanitize_filename(file_name);
-    let path = dir.join(safe_name);
-    let canonical_dir = fs::canonicalize(&dir).map_err(|_| {
+    let canonical_base = fs::canonicalize(&base_dir).map_err(|_| {
         user_error(
             "The output folder could not be checked.",
             "Choose a different folder and try again.",
         )
     })?;
+    let target_dir = playlist_folder_name
+        .map(sanitize_filename)
+        .filter(|name| !name.is_empty())
+        .map(|name| base_dir.join(name))
+        .unwrap_or_else(|| base_dir.clone());
+    if playlist_folder_name.is_some() {
+        fs::create_dir_all(&target_dir).map_err(|_| {
+            user_error(
+                "The playlist folder could not be created.",
+                "Choose a different output folder and try again.",
+            )
+        })?;
+    }
+    let canonical_target = fs::canonicalize(&target_dir).map_err(|_| {
+        user_error(
+            "The output folder could not be checked.",
+            "Choose a different folder and try again.",
+        )
+    })?;
+    if !canonical_target.starts_with(&canonical_base) {
+        return Err(user_error(
+            "The playlist folder would save outside the selected folder.",
+            "Use a simple playlist title without path separators.",
+        ));
+    }
+    let safe_name = sanitize_filename(file_name);
+    let path = target_dir.join(safe_name);
     let parent = path.parent().unwrap_or(Path::new(""));
-    let canonical_parent = fs::canonicalize(parent).unwrap_or(canonical_dir.clone());
-    if canonical_parent != canonical_dir {
+    let canonical_parent = fs::canonicalize(parent).unwrap_or(canonical_target.clone());
+    if canonical_parent != canonical_target {
         return Err(user_error(
             "The file name would save outside the selected folder.",
             "Use a simple file name without path separators.",
@@ -671,6 +704,7 @@ fn default_settings() -> Settings {
         default_quality: default_quality(),
         platform_defaults: Some(default_platform_defaults(&default_format(), &default_quality())),
         playlist_concurrency: default_playlist_concurrency(),
+        playlist_folder_mode: false,
         keep_history: default_keep_history(),
     }
 }
@@ -1499,7 +1533,11 @@ fn start_download(
             "Choose an audio preset and try again.",
         ));
     }
-    let mut output_path = safe_output_path(&request.output_dir, &request.file_name)?;
+    let mut output_path = safe_output_path(
+        &request.output_dir,
+        &request.file_name,
+        request.playlist_folder_name.as_deref(),
+    )?;
     let expected_extension = if request.mode == "audio" {
         audio_extension(&request.quality)
     } else {
@@ -1713,11 +1751,11 @@ mod tests {
     use super::{
         append_audio_preset_args, append_chapter_args, append_metadata_args, append_subtitle_args,
         append_video_preset_args, audio_extension, detect_platform, is_download_platform,
-        is_tiktok_video_url, normalize_settings, sanitize_format_id, sanitize_subtitle_language,
-        selected_video_selector, tool_asset, validate_public_url, video_selector, Platform,
-        Settings, FFMPEG_VERSION, YT_DLP_VERSION,
+        is_tiktok_video_url, normalize_settings, safe_output_path, sanitize_format_id,
+        sanitize_subtitle_language, selected_video_selector, tool_asset, validate_public_url,
+        video_selector, Platform, Settings, FFMPEG_VERSION, YT_DLP_VERSION,
     };
-    use std::path::Path;
+    use std::{fs, path::Path};
 
     #[test]
     fn detects_soundcloud_hosts_for_ytdlp_path() {
@@ -1880,6 +1918,7 @@ mod tests {
         }"#;
         let parsed: Settings = serde_json::from_str(legacy).expect("legacy settings");
         assert_eq!(parsed.playlist_concurrency, 2);
+        assert!(!parsed.playlist_folder_mode);
         assert!(parsed.platform_defaults.is_none());
 
         let normalized = normalize_settings(Settings {
@@ -1889,6 +1928,7 @@ mod tests {
             default_quality: "video-mp4-1080".to_string(),
             platform_defaults: None,
             playlist_concurrency: 9,
+            playlist_folder_mode: true,
             keep_history: true,
         });
         assert_eq!(normalized.playlist_concurrency, 3);
@@ -1924,6 +1964,35 @@ mod tests {
         assert_eq!(sound_cloud.quality, "audio-opus");
         assert_eq!(tik_tok.mode, "video");
         assert_eq!(tik_tok.quality, "video-mp4-best");
+    }
+
+    #[test]
+    fn creates_safe_playlist_subfolder_output_paths() {
+        let base = std::env::temp_dir().join(format!(
+            "unmuze-playlist-folder-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).expect("create base temp dir");
+
+        let path = safe_output_path(
+            base.to_str().expect("base path"),
+            "../bad:item?.mp3",
+            Some("../My/Playlist?"),
+        )
+        .expect("safe playlist path");
+        assert!(path.starts_with(&base));
+        assert_eq!(
+            path.parent()
+                .and_then(|parent| parent.file_name())
+                .unwrap()
+                .to_string_lossy(),
+            "_My_Playlist_"
+        );
+        assert_eq!(path.file_name().unwrap().to_string_lossy(), "_bad_item_.mp3");
+        assert!(path.parent().unwrap().is_dir());
+
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]

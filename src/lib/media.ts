@@ -77,6 +77,7 @@ export type Settings = {
   defaultQuality: DownloadPreset
   platformDefaults: PlatformDefaults
   playlistConcurrency: number
+  playlistFolderMode: boolean
   keepHistory: boolean
 }
 
@@ -164,6 +165,7 @@ export const defaultSettings: Settings = {
     tikTok: { mode: "audio", quality: "best" },
   },
   playlistConcurrency: 2,
+  playlistFolderMode: false,
   keepHistory: true,
 }
 

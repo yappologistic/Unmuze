@@ -1,10 +1,13 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import App from "@/App"
 import type { HistoryItem } from "@/lib/media"
-import { inspectMedia, saveSettings } from "@/lib/tauri"
+import { inspectMedia, inspectPlaylist, saveSettings, startDownload } from "@/lib/tauri"
 
-const { libraryItems, revealPathMock, testSettings } = vi.hoisted(() => ({
+const { downloadEvents, libraryItems, revealPathMock, startDownloadMock, testSettings } = vi.hoisted(() => ({
+  downloadEvents: {
+    finished: undefined as undefined | ((payload: { id: string; status: "completed" | "failed" | "cancelled"; path: string }) => void),
+  },
   libraryItems: [
     {
       id: "library-existing",
@@ -54,8 +57,10 @@ const { libraryItems, revealPathMock, testSettings } = vi.hoisted(() => ({
       tikTok: { mode: "audio", quality: "best" },
     },
     playlistConcurrency: 2,
+    playlistFolderMode: false,
     keepHistory: true,
   },
+  startDownloadMock: vi.fn(),
 }))
 
 vi.mock("@tauri-apps/api/app", () => ({
@@ -91,19 +96,25 @@ vi.mock("@/lib/tauri", () => ({
   installManagedTools: vi.fn(),
   loadHistory: vi.fn(() => Promise.resolve(libraryItems)),
   loadSettings: vi.fn(() => Promise.resolve(testSettings)),
-  onDownloadFinished: vi.fn(() => Promise.resolve(() => undefined)),
+  onDownloadFinished: vi.fn((handler) => {
+    downloadEvents.finished = handler
+    return Promise.resolve(() => undefined)
+  }),
   onDownloadProgress: vi.fn(() => Promise.resolve(() => undefined)),
   revealPath: revealPathMock,
   saveHistory: vi.fn((history: HistoryItem[]) => Promise.resolve(history)),
   saveSettings: vi.fn((settings) => Promise.resolve(settings)),
-  startDownload: vi.fn(),
+  startDownload: startDownloadMock,
 }))
 
 describe("Library screen", () => {
   beforeEach(() => {
     revealPathMock.mockClear()
+    downloadEvents.finished = undefined
     vi.mocked(inspectMedia).mockReset()
+    vi.mocked(inspectPlaylist).mockReset()
     vi.mocked(saveSettings).mockClear()
+    vi.mocked(startDownload).mockReset()
     testSettings.theme = "system"
     testSettings.defaultOutputFolder = ""
     testSettings.defaultFormat = "audio"
@@ -114,6 +125,7 @@ describe("Library screen", () => {
       tikTok: { mode: "audio", quality: "best" },
     }
     testSettings.playlistConcurrency = 2
+    testSettings.playlistFolderMode = false
     testSettings.keepHistory = true
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -220,5 +232,80 @@ describe("Library screen", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Preset")).toHaveValue("video-mp4-720"))
     expect(screen.getByText("Output type: MP4 video. Metadata and artwork are embedded when supported.")).toBeInTheDocument()
+  })
+
+  it("queues playlist items into a sanitized playlist folder when enabled", async () => {
+    vi.mocked(inspectPlaylist).mockResolvedValueOnce({
+      platform: "youTube",
+      downloadable: true,
+      title: "Road Mix: 2026",
+      creator: "Codex Channel",
+      entries: [
+        { id: "a", url: "https://www.youtube.com/watch?v=a", title: "First Song", index: 1, duration: 90 },
+        { id: "b", url: "https://www.youtube.com/watch?v=b", title: "Second Song", index: 2, duration: 120 },
+      ],
+    })
+    vi.mocked(startDownload).mockResolvedValue("C:\\tmp\\Road Mix_ 2026\\01 - First Song.mp3")
+    render(<App />)
+
+    fireEvent.click(screen.getAllByRole("tab", { name: "Playlist" })[0])
+    fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://www.youtube.com/playlist?list=roadmix" } })
+    fireEvent.click(screen.getByRole("button", { name: "Check" }))
+    expect(await screen.findByText("Road Mix: 2026")).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText("Output folder"), { target: { value: "C:\\tmp" } })
+    fireEvent.click(screen.getByRole("switch", { name: "Save in playlist folder" }))
+    fireEvent.click(screen.getByRole("button", { name: "Save selected items" }))
+
+    await waitFor(() =>
+      expect(vi.mocked(startDownload)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          outputDir: "C:\\tmp",
+          playlistFolderName: "Road Mix_ 2026",
+          fileName: "01 - First Song",
+        }),
+      ),
+    )
+  })
+
+  it("shows completed download actions after the finish event", async () => {
+    vi.mocked(inspectMedia).mockResolvedValueOnce({
+      platform: "youTube",
+      downloadable: true,
+      title: "Completed Action Song",
+      creator: "Codex Channel",
+      duration: 60,
+      thumbnail: null,
+      formats: ["audio"],
+      suggestedFileName: "Completed Action Song",
+    })
+    vi.mocked(startDownload).mockResolvedValue("C:\\tmp\\Completed Action Song.mp3")
+    render(<App />)
+
+    fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://www.youtube.com/watch?v=completeactions" } })
+    fireEvent.click(screen.getByRole("button", { name: "Check" }))
+    expect(await screen.findByText("Completed Action Song")).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText("Output folder"), { target: { value: "C:\\tmp" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save locally" }))
+
+    await waitFor(() => expect(vi.mocked(startDownload)).toHaveBeenCalled())
+    const request = vi.mocked(startDownload).mock.calls[0][0] as { id: string }
+    await act(async () => {
+      downloadEvents.finished?.({
+        id: request.id,
+        status: "completed",
+        path: "C:\\tmp\\Completed Action Song.mp3",
+      })
+    })
+
+    expect(await screen.findByRole("button", { name: "Open file" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Copy path" }))
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("C:\\tmp\\Completed Action Song.mp3")
+    fireEvent.click(screen.getByRole("button", { name: "Copy source" }))
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("https://www.youtube.com/watch?v=completeactions")
+    fireEvent.click(screen.getByRole("button", { name: "Open file" }))
+    fireEvent.click(screen.getByRole("button", { name: "Open folder" }))
+    expect(revealPathMock).toHaveBeenCalledWith("C:\\tmp\\Completed Action Song.mp3")
+    expect(revealPathMock).toHaveBeenCalledWith("C:\\tmp")
   })
 })

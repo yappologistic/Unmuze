@@ -90,6 +90,7 @@ describe("settings defaults", () => {
     expect(defaultSettings.defaultFormat).toBe("audio")
     expect(defaultSettings.platformDefaults.soundCloud.mode).toBe("audio")
     expect(defaultSettings.playlistConcurrency).toBe(2)
+    expect(defaultSettings.playlistFolderMode).toBe(false)
     expect(defaultSettings.keepHistory).toBe(true)
   })
 

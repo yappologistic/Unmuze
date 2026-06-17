@@ -5,8 +5,6 @@ import { check, type Update } from "@tauri-apps/plugin-updater"
 import {
   AlertCircleIcon,
   ArrowUpRightIcon,
-  CheckCircleIcon,
-  Clock3Icon,
   CopyIcon,
   DownloadIcon,
   ExternalLinkIcon,
@@ -105,6 +103,27 @@ function playlistEntryKey(entry: PlaylistEntry) {
   return `${entry.index}:${entry.id}`
 }
 
+function parentFolderFromPath(path: string) {
+  const normalized = path.trim().replace(/[\\/]+$/, "")
+  const lastSeparator = Math.max(normalized.lastIndexOf("\\"), normalized.lastIndexOf("/"))
+  return lastSeparator > 0 ? normalized.slice(0, lastSeparator) : ""
+}
+
+function joinOutputDirPreview(outputDir: string, folderName: string) {
+  if (!outputDir || !folderName) return outputDir
+  const separator = outputDir.includes("/") && !outputDir.includes("\\") ? "/" : "\\"
+  return `${outputDir.replace(/[\\/]+$/, "")}${separator}${folderName}`
+}
+
+async function copyTextToClipboard(value: string, successMessage: string, errorMessage: string) {
+  try {
+    await navigator.clipboard.writeText(value)
+    toast.success(successMessage)
+  } catch {
+    toast.error(errorMessage)
+  }
+}
+
 const navigationItems = [
   { value: "download", label: "Download", shortLabel: "Save", icon: LinkIcon, accent: "accent-blue" },
   { value: "playlist", label: "Playlist", shortLabel: "Playlist", icon: ListMusicIcon, accent: "accent-violet" },
@@ -160,6 +179,7 @@ function App() {
   const playlistDownloadIdsRef = useRef<Set<string>>(new Set())
   const cancelledQueuedIdsRef = useRef<Set<string>>(new Set())
   const contentScrollRef = useRef<HTMLDivElement>(null)
+  const mediaToolsNotificationShownRef = useRef(false)
 
   useEffect(() => {
     loadSettings()
@@ -223,6 +243,14 @@ function App() {
     contentScrollRef.current?.scrollTo({ top: 0, left: 0 })
     window.scrollTo({ top: 0, left: 0 })
   }, [tab])
+
+  useEffect(() => {
+    if (!toolStatus || toolStatus.ready || mediaToolsNotificationShownRef.current) return
+    mediaToolsNotificationShownRef.current = true
+    toast.warning("Media tools need attention.", {
+      description: "Open Settings to install or refresh managed media tools before downloading.",
+    })
+  }, [toolStatus])
 
   const playlistConcurrency = clampPlaylistConcurrency(settings.playlistConcurrency)
   const startNextPlaylistDownload = useCallback(() => {
@@ -331,7 +359,6 @@ function App() {
   const playlistValidation = useMemo(() => (playlistUrl.trim() ? validateMediaUrl(playlistUrl) : null), [playlistUrl])
   const activeDownloads = downloads.filter((item) => ["waiting", "downloading", "converting"].includes(item.status)).length
   const completedDownloads = downloads.filter((item) => item.status === "completed").length
-  const toolsReady = Boolean(toolStatus?.ytDlp.ready && toolStatus?.ffmpeg.ready)
 
   async function handleInspect() {
     setError("")
@@ -515,6 +542,8 @@ function App() {
     }
     const total = selectedEntries.length
     const playlistTitle = playlistInspection.title || "Playlist"
+    const playlistFolderName = settings.playlistFolderMode ? sanitizeFilename(playlistTitle) : ""
+    const playlistTargetDir = playlistFolderName ? joinOutputDirPreview(playlistOutputDir, playlistFolderName) : playlistOutputDir
     const queuedItems = selectedEntries.map((entry, position) => {
       const id = crypto.randomUUID()
       const numberedName = `${String(position + 1).padStart(2, "0")} - ${sanitizeFilename(entry.title)}`
@@ -528,7 +557,7 @@ function App() {
         platform: playlistInspection.platform,
         mode: playlistMode,
         quality: playlistQuality,
-        outputDir: playlistOutputDir,
+        outputDir: playlistTargetDir,
         fileName: numberedName,
         status: "waiting",
         progress: 0,
@@ -548,6 +577,7 @@ function App() {
           mode: playlistMode,
           quality: playlistQuality,
           outputDir: playlistOutputDir,
+          playlistFolderName: playlistFolderName || undefined,
           fileName: numberedName,
           splitChapters: playlistSplitChapters,
           saveSubtitles: playlistMode === "video" && playlistSaveSubtitles,
@@ -629,20 +659,14 @@ function App() {
         <DesktopSidebar
           tab={tab}
           setTab={setTab}
-          settings={settings}
-          onSaveSettings={handleSaveSettings}
           activeDownloads={activeDownloads}
           completedDownloads={completedDownloads}
-          toolsReady={toolsReady}
         />
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <MobileHeader tab={tab} setTab={setTab} />
           <WorkbenchHeader
             tab={tab}
-            activeDownloads={activeDownloads}
-            completedDownloads={completedDownloads}
-            toolsReady={toolsReady}
           />
 
           <div ref={contentScrollRef} className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
@@ -697,6 +721,8 @@ function App() {
                   quality={playlistQuality}
                   setQuality={setPlaylistQuality}
                   concurrency={playlistConcurrency}
+                  playlistFolderMode={settings.playlistFolderMode}
+                  onPlaylistFolderModeChange={(playlistFolderMode) => handleSaveSettings({ ...settings, playlistFolderMode })}
                   splitChapters={playlistSplitChapters}
                   setSplitChapters={setPlaylistSplitChapters}
                   saveSubtitles={playlistSaveSubtitles}
@@ -760,19 +786,13 @@ function App() {
 function DesktopSidebar({
   tab,
   setTab,
-  settings,
-  onSaveSettings,
   activeDownloads,
   completedDownloads,
-  toolsReady,
 }: {
   tab: string
   setTab: (value: string) => void
-  settings: Settings
-  onSaveSettings: (settings: Settings) => void
   activeDownloads: number
   completedDownloads: number
-  toolsReady: boolean
 }) {
   return (
     <aside className="hidden w-[300px] shrink-0 border-r bg-panel/70 p-5 lg:flex lg:flex-col lg:gap-5">
@@ -801,21 +821,12 @@ function DesktopSidebar({
       </Tabs>
 
       <div className="soft-panel grid gap-3 rounded-2xl p-4">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Session</span>
-          <Badge variant={toolsReady ? "default" : "outline"}>{toolsReady ? "Tools ready" : "Tools needed"}</Badge>
-        </div>
+        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Session</span>
         <div className="grid grid-cols-2 gap-2">
           <MetricTile label="Active" value={activeDownloads} tone="blue" />
           <MetricTile label="Saved" value={completedDownloads} tone="mint" />
         </div>
       </div>
-
-      <ThemeSegmentedControl
-        value={settings.theme}
-        onChange={(theme) => onSaveSettings({ ...settings, theme })}
-      />
-
     </aside>
   )
 }
@@ -840,32 +851,13 @@ function MobileHeader({ tab, setTab }: { tab: string; setTab: (value: string) =>
   )
 }
 
-function WorkbenchHeader({
-  tab,
-  activeDownloads,
-  completedDownloads,
-  toolsReady,
-}: {
-  tab: string
-  activeDownloads: number
-  completedDownloads: number
-  toolsReady: boolean
-}) {
+function WorkbenchHeader({ tab }: { tab: string }) {
   return (
     <header className="hidden border-b bg-background/80 px-8 py-5 lg:block">
       <div className="flex items-center justify-between gap-6">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Current view</p>
           <h2 className="mt-1 text-2xl font-bold tracking-normal">{tabTitle(tab)}</h2>
-        </div>
-        <div className="flex items-center gap-2">
-          <StatusChip
-            icon={toolsReady ? CheckCircleIcon : WrenchIcon}
-            label={toolsReady ? "Media tools ready" : "Media tools need attention"}
-            tone={toolsReady ? "mint" : "orange"}
-          />
-          <StatusChip icon={Clock3Icon} label={`${activeDownloads} active`} tone="blue" />
-          <StatusChip icon={DownloadIcon} label={`${completedDownloads} saved`} tone="violet" />
         </div>
       </div>
     </header>
@@ -878,29 +870,6 @@ function MetricTile({ label, value, tone }: { label: string; value: number; tone
     <div className="rounded-xl bg-card/60 p-3">
       <div className={`text-2xl font-bold ${toneClass}`}>{value}</div>
       <div className="text-xs font-semibold text-muted-foreground">{label}</div>
-    </div>
-  )
-}
-
-function StatusChip({
-  icon: Icon,
-  label,
-  tone,
-}: {
-  icon: LucideIcon
-  label: string
-  tone: "blue" | "violet" | "mint" | "orange"
-}) {
-  const toneClass = {
-    blue: "accent-blue",
-    violet: "accent-violet",
-    mint: "accent-mint",
-    orange: "accent-orange",
-  }[tone]
-  return (
-    <div className="flex items-center gap-2 rounded-xl border bg-card/70 px-3 py-2 text-sm font-medium text-muted-foreground">
-      <Icon className={`size-4 ${toneClass}`} />
-      <span>{label}</span>
     </div>
   )
 }
@@ -1124,6 +1093,8 @@ function PlaylistScreen(props: {
   quality: DownloadPreset
   setQuality: (value: DownloadPreset) => void
   concurrency: number
+  playlistFolderMode: boolean
+  onPlaylistFolderModeChange: (value: boolean) => void
   splitChapters: boolean
   setSplitChapters: (value: boolean) => void
   saveSubtitles: boolean
@@ -1154,6 +1125,12 @@ function PlaylistScreen(props: {
   const playlistHint = props.url.trim()
     ? props.validationMessage || (!isLikelyPlaylistUrl(props.url) ? `Detected: ${platformLabel(props.platform)}. Playlist mode supports YouTube playlists and SoundCloud sets only.` : `Detected: ${platformLabel(props.platform)}`)
     : "Paste a YouTube playlist or SoundCloud set URL to begin."
+  const playlistFolderName = props.inspection?.title ? sanitizeFilename(props.inspection.title) : "Playlist"
+  const playlistFolderDescription = props.inspection?.downloadable
+    ? props.playlistFolderMode
+      ? `Creates "${playlistFolderName}" inside the selected output folder.`
+      : "Selected items will save directly into the output folder."
+    : "Inspect a playlist to use its title as the folder name."
   const playlistDownloads = props.downloads.filter((item) => item.playlistTitle)
   return (
     <div className="flex flex-col gap-6">
@@ -1233,6 +1210,18 @@ function PlaylistScreen(props: {
                   <Button variant="outline" size="icon" onClick={props.onChooseFolder} aria-label="Choose folder"><FolderIcon /></Button>
                 </div>
               </Field>
+              <div className="soft-panel grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 rounded-2xl p-4">
+                <div className="min-w-0">
+                  <FieldLabel>Save in playlist folder</FieldLabel>
+                  <FieldDescription>{playlistFolderDescription}</FieldDescription>
+                </div>
+                <Switch
+                  checked={props.playlistFolderMode}
+                  onCheckedChange={props.onPlaylistFolderModeChange}
+                  disabled={!props.inspection?.downloadable}
+                  aria-label="Save in playlist folder"
+                />
+              </div>
               <DownloadAdvancedOptions
                 canDownload={Boolean(props.inspection?.downloadable)}
                 canSaveSubtitles={canSaveSubtitles}
@@ -1464,6 +1453,31 @@ function InspectionCard({ inspection }: { inspection: Inspection }) {
   )
 }
 
+function DownloadCompletedActions({ item }: { item: DownloadItem }) {
+  if (item.status !== "completed" || !item.path) return null
+  const parentFolder = parentFolderFromPath(item.path)
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Button variant="outline" size="sm" onClick={() => item.path && revealPath(item.path)}>
+        <ExternalLinkIcon data-icon="inline-start" />
+        Open file
+      </Button>
+      <Button variant="outline" size="sm" onClick={() => parentFolder && revealPath(parentFolder)} disabled={!parentFolder}>
+        <FolderIcon data-icon="inline-start" />
+        Open folder
+      </Button>
+      <Button variant="outline" size="sm" onClick={() => item.path && copyTextToClipboard(item.path, "Local path copied.", "Local path could not be copied.")}>
+        <CopyIcon data-icon="inline-start" />
+        Copy path
+      </Button>
+      <Button variant="outline" size="sm" onClick={() => copyTextToClipboard(item.url, "Source URL copied.", "Source URL could not be copied.")}>
+        <CopyIcon data-icon="inline-start" />
+        Copy source
+      </Button>
+    </div>
+  )
+}
+
 function DownloadManager({ downloads, onCancel }: { downloads: DownloadItem[]; onCancel: (id: string) => void }) {
   return (
     <Card>
@@ -1496,11 +1510,11 @@ function DownloadManager({ downloads, onCancel }: { downloads: DownloadItem[]; o
                     </div>
                     <p className="mt-1 text-sm font-medium text-muted-foreground">{item.playlistTitle ? `${item.playlistTitle} · ` : ""}{item.message}</p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2 lg:justify-end">
                     {["downloading", "converting"].includes(item.status) ? (
                       <Button variant="outline" size="sm" onClick={() => onCancel(item.id)}><SquareIcon data-icon="inline-start" />Cancel</Button>
                     ) : null}
-                    {item.path ? <Button variant="outline" size="sm" onClick={() => item.path && revealPath(item.path)}><ExternalLinkIcon data-icon="inline-start" />Open</Button> : null}
+                    <DownloadCompletedActions item={item} />
                   </div>
                 </div>
                 <Progress className="mt-3" value={item.progress} />
@@ -1561,16 +1575,6 @@ function LibraryScreen({
     if (!window.confirm("Clear all Library records? Downloaded files stay on disk.")) return
     setHistory([])
     await saveHistory([]).catch(() => undefined)
-  }
-
-  async function copySource(url?: string | null) {
-    if (!url) return
-    try {
-      await navigator.clipboard.writeText(url)
-      toast.success("Source URL copied.")
-    } catch {
-      toast.error("Source URL could not be copied.")
-    }
   }
 
   const filteredHistory = useMemo(() => {
@@ -1786,9 +1790,13 @@ function LibraryScreen({
                           <ArrowUpRightIcon data-icon="inline-start" />
                           Use source
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => copySource(item.url)} disabled={!item.url}>
+                        <Button variant="outline" size="sm" onClick={() => item.url && copyTextToClipboard(item.url, "Source URL copied.", "Source URL could not be copied.")} disabled={!item.url}>
                           <CopyIcon data-icon="inline-start" />
-                          Copy
+                          Copy URL
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => copyTextToClipboard(item.path, "Local path copied.", "Local path could not be copied.")}>
+                          <CopyIcon data-icon="inline-start" />
+                          Copy path
                         </Button>
                       </div>
                     </div>
