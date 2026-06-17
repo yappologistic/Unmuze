@@ -167,6 +167,28 @@ describe("Library screen", () => {
     expect(screen.getAllByRole("tab", { name: "Download" }).length).toBeGreaterThan(1)
   })
 
+  it("keeps active tabs and panels linked with stable ARIA ids", async () => {
+    await act(async () => {
+      render(<App />)
+    })
+
+    const selectedTabs = screen.getAllByRole("tab", { selected: true })
+    expect(selectedTabs.length).toBeGreaterThan(0)
+    selectedTabs.forEach((tab) => {
+      const controls = tab.getAttribute("aria-controls")
+      expect(controls).toBeTruthy()
+      expect(document.getElementById(controls || "")).toBeTruthy()
+    })
+
+    const panel = screen.getByRole("tabpanel")
+    expect(panel).not.toHaveAttribute("tabindex")
+    const labelledBy = panel.getAttribute("aria-labelledby")
+    expect(labelledBy).toBeTruthy()
+    labelledBy?.split(/\s+/).forEach((id) => {
+      expect(document.getElementById(id)).toBeTruthy()
+    })
+  })
+
   it("filters by search, platform, and grouping without losing reset recovery", async () => {
     render(<App />)
 

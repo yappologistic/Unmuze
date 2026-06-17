@@ -137,6 +137,9 @@ const navigationItems = [
   { value: "help", label: "Help", shortLabel: "Help", icon: InfoIcon, accent: "text-muted-foreground" },
 ] as const
 
+const appTabsBaseId = "unmuze-navigation"
+const appTabsLabelPrefixes = ["desktop", "mobile"]
+
 function App() {
   const [tab, setTab] = useState("download")
   const [url, setUrl] = useState("")
@@ -703,7 +706,7 @@ function App() {
           <MobileHeader tab={tab} setTab={setTab} />
 
           <div ref={contentScrollRef} className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-            <Tabs value={tab} onValueChange={setTab} className="gap-0">
+            <Tabs value={tab} onValueChange={setTab} className="gap-0" baseId={appTabsBaseId} labelledByPrefixes={appTabsLabelPrefixes}>
               <TabsContent value="download">
                 <DownloadScreen
                   url={url}
@@ -866,7 +869,7 @@ function DesktopSidebar({
         </div>
       </div>
 
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs value={tab} onValueChange={setTab} baseId={appTabsBaseId} triggerIdPrefix="desktop">
         <TabsList className="grid h-auto w-full grid-cols-1 gap-1 bg-transparent p-0 text-muted-foreground">
           {navigationItems.map((item) => {
             const Icon = item.icon
@@ -907,7 +910,7 @@ function MobileHeader({ tab, setTab }: { tab: string; setTab: (value: string) =>
         <img className="size-8 rounded-xl object-cover" src={unmuzeIcon} alt="" />
         <span>Unmuze</span>
       </div>
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs value={tab} onValueChange={setTab} baseId={appTabsBaseId} triggerIdPrefix="mobile">
         <TabsList className="w-full justify-start overflow-x-auto">
           {navigationItems.map((item) => (
             <TabsTrigger key={item.value} value={item.value} className="shrink-0">

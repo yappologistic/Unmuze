@@ -1,19 +1,47 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
-const TabsContext = React.createContext<{ value: string; setValue: (value: string) => void; baseId: string } | null>(null)
+const TabsContext = React.createContext<{
+  value: string
+  setValue: (value: string) => void
+  baseId: string
+  triggerIdPrefix: string
+  labelledByPrefixes: string[]
+} | null>(null)
 
 function tabIdPart(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, "_")
 }
 
-function Tabs({ value, onValueChange, children, className }: { value: string; onValueChange: (value: string) => void; children: React.ReactNode; className?: string }) {
-  const baseId = React.useId()
+function Tabs({
+  value,
+  onValueChange,
+  children,
+  className,
+  baseId,
+  triggerIdPrefix = "default",
+  labelledByPrefixes,
+}: {
+  value: string
+  onValueChange: (value: string) => void
+  children: React.ReactNode
+  className?: string
+  baseId?: string
+  triggerIdPrefix?: string
+  labelledByPrefixes?: string[]
+}) {
+  const generatedBaseId = React.useId()
+  const resolvedBaseId = baseId || generatedBaseId
+  const resolvedLabelledByPrefixes = labelledByPrefixes || [triggerIdPrefix]
   return (
-    <TabsContext.Provider value={{ value, setValue: onValueChange, baseId }}>
+    <TabsContext.Provider value={{ value, setValue: onValueChange, baseId: resolvedBaseId, triggerIdPrefix, labelledByPrefixes: resolvedLabelledByPrefixes }}>
       <div className={cn("flex flex-col gap-4", className)}>{children}</div>
     </TabsContext.Provider>
   )
+}
+
+function triggerId(baseId: string, triggerIdPrefix: string, idPart: string) {
+  return `${baseId}-trigger-${triggerIdPrefix}-${idPart}`
 }
 
 function TabsList({ className, ...props }: React.ComponentProps<"div">) {
@@ -35,7 +63,7 @@ function TabsTrigger({ value, className, ...props }: React.ComponentProps<"butto
   return (
     <button
       type="button"
-      id={context ? `${context.baseId}-trigger-${idPart}` : undefined}
+      id={context ? triggerId(context.baseId, context.triggerIdPrefix, idPart) : undefined}
       role="tab"
       aria-selected={active}
       aria-controls={context ? `${context.baseId}-content-${idPart}` : undefined}
@@ -73,13 +101,13 @@ function TabsContent({ value, className, ...props }: React.ComponentProps<"div">
   const context = React.useContext(TabsContext)
   if (context?.value !== value) return null
   const idPart = tabIdPart(value)
+  const labelledBy = context.labelledByPrefixes.map((prefix) => triggerId(context.baseId, prefix, idPart)).join(" ")
   return (
     <div
       id={`${context.baseId}-content-${idPart}`}
       role="tabpanel"
-      aria-labelledby={`${context.baseId}-trigger-${idPart}`}
-      tabIndex={0}
-      className={cn("screen-enter outline-none", className)}
+      aria-labelledby={labelledBy}
+      className={cn("screen-enter", className)}
       {...props}
     />
   )
