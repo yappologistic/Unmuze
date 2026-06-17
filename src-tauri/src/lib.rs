@@ -76,10 +76,21 @@ struct Settings {
 #[serde(rename_all = "camelCase")]
 struct HistoryItem {
     id: String,
+    url: Option<String>,
     title: String,
+    creator: Option<String>,
+    thumbnail: Option<String>,
+    duration: Option<u64>,
     platform: Platform,
     path: String,
     mode: String,
+    quality: Option<String>,
+    file_name: Option<String>,
+    output_dir: Option<String>,
+    selected_format_id: Option<String>,
+    playlist_title: Option<String>,
+    playlist_index: Option<u64>,
+    playlist_total: Option<u64>,
     completed_at: String,
 }
 
@@ -720,6 +731,17 @@ fn save_history(app: AppHandle, history: Vec<HistoryItem>) -> AppResult<Vec<Hist
         )
     })?;
     Ok(history)
+}
+
+#[tauri::command]
+fn check_paths(paths: Vec<String>) -> AppResult<HashMap<String, bool>> {
+    Ok(paths
+        .into_iter()
+        .map(|path| {
+            let exists = PathBuf::from(&path).exists();
+            (path, exists)
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -1501,6 +1523,7 @@ pub fn run() {
             save_settings,
             load_history,
             save_history,
+            check_paths,
             get_tool_status,
             install_managed_tools,
             inspect_media,

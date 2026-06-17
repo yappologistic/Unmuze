@@ -22,7 +22,7 @@ Download the installer for your platform from the GitHub releases page, or build
 
 ## First Launch
 
-Unmuze stores settings, history, and optional managed media tools in your local app data folder. It may ask for folder access when choosing an output location.
+Unmuze stores settings, Library records, and optional managed media tools in your local app data folder. It may ask for folder access when choosing an output location.
 
 Open Settings and select **Install managed tools** if Unmuze reports missing media tools. The app downloads pinned copies of `yt-dlp` and FFmpeg, verifies their SHA-256 checksums, and uses them before system PATH tools.
 

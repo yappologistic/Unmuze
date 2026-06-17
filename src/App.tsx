@@ -4,12 +4,16 @@ import { relaunch } from "@tauri-apps/plugin-process"
 import { check, type Update } from "@tauri-apps/plugin-updater"
 import {
   AlertCircleIcon,
+  ArrowUpRightIcon,
   CheckCircleIcon,
   Clock3Icon,
+  CopyIcon,
   DownloadIcon,
   ExternalLinkIcon,
+  FileQuestionIcon,
   FolderIcon,
   HistoryIcon,
+  ImageIcon,
   InfoIcon,
   LinkIcon,
   ListMusicIcon,
@@ -24,6 +28,7 @@ import {
   VideoIcon,
   ScissorsIcon,
   CaptionsIcon,
+  XIcon,
   type LucideIcon,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -38,7 +43,6 @@ import { Select, SelectGroup, SelectItem } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Toaster } from "@/components/ui/sonner"
 import { Spinner } from "@/components/ui/spinner"
@@ -72,6 +76,7 @@ import {
 } from "@/lib/media"
 import {
   cancelDownload,
+  checkPaths,
   chooseFolder,
   getToolStatus,
   inspectMedia,
@@ -99,7 +104,7 @@ function playlistEntryKey(entry: PlaylistEntry) {
 const navigationItems = [
   { value: "download", label: "Download", shortLabel: "Save", icon: LinkIcon, accent: "accent-blue" },
   { value: "playlist", label: "Playlist", shortLabel: "Playlist", icon: ListMusicIcon, accent: "accent-violet" },
-  { value: "history", label: "History", shortLabel: "History", icon: HistoryIcon, accent: "accent-mint" },
+  { value: "history", label: "Library", shortLabel: "Library", icon: HistoryIcon, accent: "accent-mint" },
   { value: "settings", label: "Settings", shortLabel: "Settings", icon: SettingsIcon, accent: "accent-orange" },
   { value: "help", label: "Help", shortLabel: "Help", icon: InfoIcon, accent: "text-muted-foreground" },
 ] as const
@@ -125,6 +130,7 @@ function App() {
   const [updateProgress, setUpdateProgress] = useState(0)
   const [updateMessage, setUpdateMessage] = useState("")
   const [history, setHistory] = useState<HistoryItem[]>([])
+  const [pathStatus, setPathStatus] = useState<Record<string, boolean>>({})
   const [downloads, setDownloads] = useState<DownloadItem[]>([])
   const [mode, setMode] = useState<DownloadMode>("audio")
   const [quality, setQuality] = useState<DownloadPreset>("best")
@@ -167,6 +173,25 @@ function App() {
     refreshToolStatus()
     getVersion().then(setAppVersion).catch(() => setAppVersion(""))
   }, [])
+
+  useEffect(() => {
+    const paths = Array.from(new Set(history.map((item) => item.path).filter(Boolean)))
+    if (paths.length === 0) {
+      setPathStatus({})
+      return
+    }
+    let cancelled = false
+    checkPaths(paths)
+      .then((status) => {
+        if (!cancelled) setPathStatus(status)
+      })
+      .catch(() => {
+        if (!cancelled) setPathStatus({})
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [history])
 
   useEffect(() => {
     const root = document.documentElement
@@ -259,10 +284,21 @@ function App() {
           if (status === "completed" && settings.keepHistory) {
             const completed: HistoryItem = {
               id: item.id,
+              url: item.url,
               title: item.title,
+              creator: item.creator,
+              thumbnail: item.thumbnail,
+              duration: item.duration,
               platform: item.platform,
               path: payload.path,
               mode: item.mode,
+              quality: item.quality,
+              fileName: item.fileName,
+              outputDir: item.outputDir,
+              selectedFormatId: item.selectedFormatId,
+              playlistTitle: item.playlistTitle,
+              playlistIndex: item.playlistIndex,
+              playlistTotal: item.playlistTotal,
               completedAt: new Date().toISOString(),
             }
             setHistory((current) => {
@@ -476,6 +512,9 @@ function App() {
         id,
         url: entry.url,
         title: entry.title,
+        creator: entry.creator,
+        thumbnail: entry.thumbnail,
+        duration: entry.duration,
         platform: playlistInspection.platform,
         mode: playlistMode,
         quality: playlistQuality,
@@ -527,6 +566,9 @@ function App() {
       id,
       url,
       title: inspection.title || "Untitled media",
+      creator: inspection.creator,
+      thumbnail: inspection.thumbnail,
+      duration: inspection.duration,
       platform: inspection.platform,
       mode,
       quality,
@@ -664,7 +706,16 @@ function App() {
                 />
               </TabsContent>
               <TabsContent value="history">
-                <HistoryScreen history={history} setHistory={setHistory} />
+                <LibraryScreen
+                  history={history}
+                  pathStatus={pathStatus}
+                  setHistory={setHistory}
+                  onUseSource={(item) => {
+                    if (!item.url) return
+                    setUrl(item.url)
+                    setTab("download")
+                  }}
+                />
               </TabsContent>
               <TabsContent value="settings">
                 <SettingsScreen
@@ -1452,57 +1503,294 @@ function DownloadManager({ downloads, onCancel }: { downloads: DownloadItem[]; o
   )
 }
 
-function HistoryScreen({ history, setHistory }: { history: HistoryItem[]; setHistory: (items: HistoryItem[]) => void }) {
+type LibraryDateFilter = "all" | "today" | "week" | "month"
+
+function historyQualityLabel(item: HistoryItem) {
+  if (!item.quality) return "Unknown"
+  return presetOptionsForMode(item.mode).find((option) => option.value === item.quality)?.label || item.quality
+}
+
+function matchesDateFilter(completedAt: string, filter: LibraryDateFilter) {
+  if (filter === "all") return true
+  const completed = new Date(completedAt).getTime()
+  if (!Number.isFinite(completed)) return true
+  const age = Date.now() - completed
+  if (filter === "today") return age <= 24 * 60 * 60 * 1000
+  if (filter === "week") return age <= 7 * 24 * 60 * 60 * 1000
+  return age <= 30 * 24 * 60 * 60 * 1000
+}
+
+function LibraryStatusBadge({ exists }: { exists: boolean | undefined }) {
+  if (exists === true) return <Badge variant="default">Available</Badge>
+  if (exists === false) return <Badge variant="destructive">Missing</Badge>
+  return <Badge variant="outline">Unchecked</Badge>
+}
+
+function libraryGroupId(group: string) {
+  return `library-${group.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "group"}`
+}
+
+function LibraryScreen({
+  history,
+  pathStatus,
+  setHistory,
+  onUseSource,
+}: {
+  history: HistoryItem[]
+  pathStatus: Record<string, boolean>
+  setHistory: (items: HistoryItem[]) => void
+  onUseSource: (item: HistoryItem) => void
+}) {
+  const [query, setQuery] = useState("")
+  const [platformFilter, setPlatformFilter] = useState("all")
+  const [modeFilter, setModeFilter] = useState("all")
+  const [dateFilter, setDateFilter] = useState<LibraryDateFilter>("all")
+  const [groupFilter, setGroupFilter] = useState("all")
+
   async function clearHistory() {
+    if (!window.confirm("Clear all Library records? Downloaded files stay on disk.")) return
     setHistory([])
     await saveHistory([]).catch(() => undefined)
   }
+
+  async function copySource(url?: string | null) {
+    if (!url) return
+    try {
+      await navigator.clipboard.writeText(url)
+      toast.success("Source URL copied.")
+    } catch {
+      toast.error("Source URL could not be copied.")
+    }
+  }
+
+  const filteredHistory = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return history
+      .filter((item) => {
+        if (platformFilter !== "all" && item.platform !== platformFilter) return false
+        if (modeFilter !== "all" && item.mode !== modeFilter) return false
+        if (groupFilter === "playlists" && !item.playlistTitle) return false
+        if (groupFilter === "individual" && item.playlistTitle) return false
+        if (!matchesDateFilter(item.completedAt, dateFilter)) return false
+        if (!needle) return true
+        return [item.title, item.creator, item.url, item.path, item.playlistTitle]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(needle))
+      })
+      .sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime())
+  }, [dateFilter, groupFilter, history, modeFilter, platformFilter, query])
+
+  const groupedHistory = useMemo(() => {
+    const groups = new Map<string, HistoryItem[]>()
+    filteredHistory.forEach((item) => {
+      const key = item.playlistTitle ? `Playlist · ${item.playlistTitle}` : "Individual saves"
+      groups.set(key, [...(groups.get(key) || []), item])
+    })
+    return Array.from(groups.entries())
+  }, [filteredHistory])
+
+  const activeFilters = Boolean(query.trim() || platformFilter !== "all" || modeFilter !== "all" || dateFilter !== "all" || groupFilter !== "all")
+  const platforms = Array.from(new Set(history.map((item) => item.platform)))
+  const playlistCount = history.filter((item) => item.playlistTitle).length
+  const missingCount = history.filter((item) => pathStatus[item.path] === false).length
+
+  function resetFilters() {
+    setQuery("")
+    setPlatformFilter("all")
+    setModeFilter("all")
+    setDateFilter("all")
+    setGroupFilter("all")
+  }
+
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between">
-        <div>
-          <CardTitle className="text-lg">History</CardTitle>
-          <CardDescription>Completed downloads stored locally on this device.</CardDescription>
-        </div>
-        <Button variant="outline" onClick={clearHistory}>Clear</Button>
-      </CardHeader>
-      <CardContent>
-        {history.length === 0 ? (
-          <div className="flex min-h-48 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed bg-card/40 p-6 text-center text-sm text-muted-foreground">
-            <HistoryIcon className="size-8 accent-mint" />
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader className="gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="font-semibold text-foreground">No completed downloads yet</p>
-              <p>Saved media will appear here with local open actions.</p>
+              <CardTitle className="text-lg">Library</CardTitle>
+              <CardDescription>Search, filter, and reopen completed local saves stored on this device.</CardDescription>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {activeFilters ? (
+                <Button variant="outline" onClick={resetFilters}>
+                  <XIcon data-icon="inline-start" />
+                  Reset
+                </Button>
+              ) : null}
+              <Button variant="outline" onClick={clearHistory} disabled={history.length === 0}>Clear</Button>
             </div>
           </div>
-        ) : (
-          <div className="overflow-x-auto rounded-2xl border bg-card/50">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Platform</TableHead>
-                  <TableHead>Format</TableHead>
-                  <TableHead>Completed</TableHead>
-                  <TableHead>Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {history.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="max-w-xs truncate font-medium">{item.title}</TableCell>
-                    <TableCell>{platformLabel(item.platform)}</TableCell>
-                    <TableCell>{item.mode}</TableCell>
-                    <TableCell>{new Date(item.completedAt).toLocaleString()}</TableCell>
-                    <TableCell><Button variant="outline" size="sm" onClick={() => revealPath(item.path)}>Open</Button></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <MetricTile label="Library items" value={history.length} tone="blue" />
+            <MetricTile label="Playlist items" value={playlistCount} tone="mint" />
+            <div className="rounded-2xl border bg-card/55 p-4">
+              <div className="text-xs font-semibold uppercase tracking-normal text-muted-foreground">Missing files</div>
+              <div className="mt-2 text-2xl font-bold">{missingCount}</div>
+            </div>
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="library-search">Search library</FieldLabel>
+              <div className="relative">
+                <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="library-search"
+                  className="pl-9"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search title, creator, playlist, source URL, or local path"
+                />
+              </div>
+            </Field>
+            <div className="grid gap-3 md:grid-cols-4">
+              <Field>
+                <FieldLabel htmlFor="library-platform">Platform</FieldLabel>
+                <Select id="library-platform" value={platformFilter} onValueChange={setPlatformFilter}>
+                  <SelectGroup>
+                    <SelectItem value="all">All platforms</SelectItem>
+                    {platforms.map((value) => (
+                      <SelectItem key={value} value={value}>{platformLabel(value)}</SelectItem>
+                    ))}
+                  </SelectGroup>
+                </Select>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="library-format">Format</FieldLabel>
+                <Select id="library-format" value={modeFilter} onValueChange={setModeFilter}>
+                  <SelectGroup>
+                    <SelectItem value="all">Audio and video</SelectItem>
+                    <SelectItem value="audio">Audio</SelectItem>
+                    <SelectItem value="video">Video</SelectItem>
+                  </SelectGroup>
+                </Select>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="library-date">Date</FieldLabel>
+                <Select id="library-date" value={dateFilter} onValueChange={(value) => setDateFilter(value as LibraryDateFilter)}>
+                  <SelectGroup>
+                    <SelectItem value="all">Any time</SelectItem>
+                    <SelectItem value="today">Last 24 hours</SelectItem>
+                    <SelectItem value="week">Last 7 days</SelectItem>
+                    <SelectItem value="month">Last 30 days</SelectItem>
+                  </SelectGroup>
+                </Select>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="library-group">Grouping</FieldLabel>
+                <Select id="library-group" value={groupFilter} onValueChange={setGroupFilter}>
+                  <SelectGroup>
+                    <SelectItem value="all">All saves</SelectItem>
+                    <SelectItem value="playlists">Playlist items</SelectItem>
+                    <SelectItem value="individual">Individual saves</SelectItem>
+                  </SelectGroup>
+                </Select>
+              </Field>
+            </div>
+            <FieldDescription>{filteredHistory.length} of {history.length} library item{history.length === 1 ? "" : "s"} shown.</FieldDescription>
+          </FieldGroup>
+        </CardContent>
+      </Card>
+
+      {history.length === 0 ? (
+        <Card>
+          <CardContent className="flex min-h-56 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
+            <HistoryIcon className="size-9 accent-mint" />
+            <div>
+              <p className="font-semibold text-foreground">No library items yet</p>
+              <p>Completed downloads will appear here with metadata, source links, and local file actions.</p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : filteredHistory.length === 0 ? (
+        <Card>
+          <CardContent className="flex min-h-48 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
+            <FileQuestionIcon className="size-9 accent-orange" />
+            <div>
+              <p className="font-semibold text-foreground">No matching library items</p>
+              <p>Adjust the search or reset filters to return to the full local library.</p>
+            </div>
+            <Button variant="outline" onClick={resetFilters}>Reset filters</Button>
+          </CardContent>
+        </Card>
+      ) : (
+        groupedHistory.map(([group, items]) => {
+          const groupId = libraryGroupId(group)
+          return (
+          <section key={group} className="flex flex-col gap-3" aria-labelledby={groupId}>
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+              <h3 id={groupId} className="text-sm font-bold text-muted-foreground">{group}</h3>
+              <Badge variant="outline">{items.length} item{items.length === 1 ? "" : "s"}</Badge>
+            </div>
+            <div className="flex flex-col gap-3">
+              {items.map((item) => {
+                const exists = pathStatus[item.path]
+                return (
+                  <article key={item.id} className="workbench-panel rounded-2xl p-4">
+                    <div className="grid gap-4 lg:grid-cols-[6rem_minmax(0,1fr)_auto] lg:items-start">
+                      {item.thumbnail ? (
+                        <img className="aspect-video w-full rounded-xl object-cover lg:w-24" src={item.thumbnail} alt={`${item.title} thumbnail`} />
+                      ) : (
+                        <div className="flex aspect-video w-full items-center justify-center rounded-xl bg-muted text-muted-foreground lg:w-24">
+                          <ImageIcon className="size-5" />
+                        </div>
+                      )}
+                      <div className="min-w-0 space-y-3">
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <LibraryStatusBadge exists={exists} />
+                            <Badge variant="outline">{platformLabel(item.platform)}</Badge>
+                            <Badge variant="outline">{item.mode}</Badge>
+                            <Badge variant="outline">{historyQualityLabel(item)}</Badge>
+                            {item.playlistIndex && item.playlistTotal ? <Badge variant="outline">{item.playlistIndex} of {item.playlistTotal}</Badge> : null}
+                          </div>
+                          <h4 className="truncate text-base font-bold">{item.title}</h4>
+                          <p className="text-sm font-medium text-muted-foreground">
+                            {item.creator || "Creator unavailable"} · {formatDuration(item.duration)} · {new Date(item.completedAt).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="grid gap-2 text-sm text-muted-foreground">
+                          {item.url ? (
+                            <p className="truncate">
+                              <span className="font-semibold text-foreground">Source:</span> {item.url}
+                            </p>
+                          ) : null}
+                          <p className="truncate">
+                            <span className="font-semibold text-foreground">File:</span> {item.path}
+                          </p>
+                          {item.playlistTitle ? (
+                            <p className="truncate">
+                              <span className="font-semibold text-foreground">Playlist:</span> {item.playlistTitle}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2 lg:justify-end">
+                        <Button variant="outline" size="sm" onClick={() => revealPath(item.path)} disabled={exists === false}>
+                          <ExternalLinkIcon data-icon="inline-start" />
+                          Open
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => onUseSource(item)} disabled={!item.url}>
+                          <ArrowUpRightIcon data-icon="inline-start" />
+                          Use source
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => copySource(item.url)} disabled={!item.url}>
+                          <CopyIcon data-icon="inline-start" />
+                          Copy
+                        </Button>
+                      </div>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          </section>
+          )
+        })
+      )}
+    </div>
   )
 }
 
@@ -1609,10 +1897,10 @@ function SettingsScreen({
             </Field>
             <div className="soft-panel flex items-center justify-between gap-3 rounded-2xl p-4">
               <div>
-                <FieldLabel>Keep download history</FieldLabel>
-                <FieldDescription>History contains titles and local file paths only.</FieldDescription>
+                <FieldLabel>Keep Library records</FieldLabel>
+                <FieldDescription>Library records contain saved metadata, source URLs, and local file paths.</FieldDescription>
               </div>
-              <Switch checked={settings.keepHistory} onCheckedChange={(checked) => onSave({ ...settings, keepHistory: checked })} aria-label="Keep download history" />
+              <Switch checked={settings.keepHistory} onCheckedChange={(checked) => onSave({ ...settings, keepHistory: checked })} aria-label="Keep Library records" />
             </div>
           </FieldGroup>
         </CardContent>
@@ -1718,7 +2006,7 @@ function HelpScreen() {
           <p>Playlist mode can save selected public items with a configurable concurrency limit, per-item progress, and cancellation.</p>
           <p>Audio and video presets cover common formats, and supported downloads can embed metadata, source URLs, and artwork.</p>
           <p>Advanced options can split chaptered sources into separate files and save available video subtitles as SRT sidecar files.</p>
-          <p>It stores settings and history locally. It does not create accounts or send your library to a cloud service.</p>
+          <p>It stores settings and Library records locally. It does not create accounts or send your library to a cloud service.</p>
         </CardContent>
       </Card>
       <Card>

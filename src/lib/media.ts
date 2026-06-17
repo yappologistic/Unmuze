@@ -100,10 +100,21 @@ export type ToolStatus = {
 
 export type HistoryItem = {
   id: string
+  url?: string | null
   title: string
+  creator?: string | null
+  thumbnail?: string | null
+  duration?: number | null
   platform: Platform
   path: string
   mode: DownloadMode
+  quality?: DownloadPreset | string | null
+  fileName?: string | null
+  outputDir?: string | null
+  selectedFormatId?: string | null
+  playlistTitle?: string | null
+  playlistIndex?: number | null
+  playlistTotal?: number | null
   completedAt: string
 }
 
@@ -111,6 +122,9 @@ export type DownloadItem = {
   id: string
   url: string
   title: string
+  creator?: string | null
+  thumbnail?: string | null
+  duration?: number | null
   platform: Platform
   mode: DownloadMode
   quality: DownloadPreset

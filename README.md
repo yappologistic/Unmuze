@@ -6,7 +6,7 @@
 
 Unmuze is a lightweight local desktop app for Windows, macOS, and Linux that lets a user paste a supported media URL, inspect it, and save permitted audio or video content locally.
 
-The app is local-first. It does not require an account, does not use a cloud backend, and stores only local preferences and download history on the user device.
+The app is local-first. It does not require an account, does not use a cloud backend, and stores only local preferences and Library records on the user device.
 
 ## What It Does
 
@@ -21,7 +21,7 @@ The app is local-first. It does not require an account, does not use a cloud bac
 - Embeds title, uploader/artist metadata, source URL, and thumbnail artwork when the selected output format supports it.
 - Can split chaptered videos, podcasts, lectures, or albums into separate files by chapter.
 - Can save manual subtitles or auto-generated captions as SRT sidecar files for video downloads.
-- Shows progress, cancellation, completed downloads, and local history.
+- Shows progress, cancellation, completed downloads, and a searchable local Library.
 - Supports light, dark, and system theme settings.
 - Checks for Tauri signature-verified app updates from inside Settings.
 

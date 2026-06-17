@@ -28,6 +28,10 @@ export async function saveHistory(history: HistoryItem[]) {
   return callBackend<HistoryItem[]>("save_history", { history })
 }
 
+export async function checkPaths(paths: string[]) {
+  return callBackend<Record<string, boolean>>("check_paths", { paths })
+}
+
 export async function getToolStatus() {
   return callBackend<ToolStatus>("get_tool_status")
 }
@@ -69,7 +73,7 @@ export function onDownloadProgress(handler: (payload: { id: string; line: string
   return listen<{ id: string; line: string }>("download-progress", (event) => handler(event.payload))
 }
 
-export function onDownloadFinished(handler: (payload: { id: string; status: "completed" | "failed"; path: string }) => void) {
+export function onDownloadFinished(handler: (payload: { id: string; status: "completed" | "failed" | "cancelled"; path: string }) => void) {
   if (!isTauri) return Promise.resolve(() => undefined)
-  return listen<{ id: string; status: "completed" | "failed"; path: string }>("download-finished", (event) => handler(event.payload))
+  return listen<{ id: string; status: "completed" | "failed" | "cancelled"; path: string }>("download-finished", (event) => handler(event.payload))
 }
