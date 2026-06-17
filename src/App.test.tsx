@@ -331,6 +331,32 @@ describe("Library screen", () => {
     )
   })
 
+  it("clears a playlist inspection and selection when the playlist URL changes", async () => {
+    vi.mocked(inspectPlaylist).mockResolvedValueOnce({
+      platform: "youTube",
+      downloadable: true,
+      title: "Original Playlist",
+      creator: "Codex Channel",
+      entries: [
+        { id: "a", url: "https://www.youtube.com/watch?v=a", title: "First Song", index: 1, duration: 90 },
+      ],
+    })
+    render(<App />)
+
+    fireEvent.click(screen.getAllByRole("tab", { name: "Playlist" })[0])
+    fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://www.youtube.com/playlist?list=original" } })
+    fireEvent.click(screen.getByRole("button", { name: "Check" }))
+    expect(await screen.findByText("Original Playlist")).toBeInTheDocument()
+    expect(screen.getByText("1 of 1 selected.")).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://www.youtube.com/playlist?list=changed" } })
+
+    expect(screen.queryByText("Original Playlist")).not.toBeInTheDocument()
+    expect(screen.queryByText("1 of 1 selected.")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Save selected items" })).toBeDisabled()
+    expect(vi.mocked(startDownload)).not.toHaveBeenCalled()
+  })
+
   it("shows inline output folder validation before queueing playlist downloads", async () => {
     vi.mocked(inspectPlaylist).mockResolvedValueOnce({
       platform: "youTube",

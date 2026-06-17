@@ -168,6 +168,7 @@ function App() {
   const [outputDirError, setOutputDirError] = useState("")
   const [fileName, setFileName] = useState("")
   const [playlistUrl, setPlaylistUrl] = useState("")
+  const [inspectedPlaylistUrl, setInspectedPlaylistUrl] = useState("")
   const [playlistInspection, setPlaylistInspection] = useState<PlaylistInspection | null>(null)
   const [playlistChecking, setPlaylistChecking] = useState(false)
   const [playlistError, setPlaylistError] = useState("")
@@ -184,12 +185,17 @@ function App() {
   const playlistDownloadIdsRef = useRef<Set<string>>(new Set())
   const cancelledQueuedIdsRef = useRef<Set<string>>(new Set())
   const urlRef = useRef(url)
+  const playlistUrlRef = useRef(playlistUrl)
   const contentScrollRef = useRef<HTMLDivElement>(null)
   const mediaToolsNotificationShownRef = useRef(false)
 
   useEffect(() => {
     urlRef.current = url
   }, [url])
+
+  useEffect(() => {
+    playlistUrlRef.current = playlistUrl
+  }, [playlistUrl])
 
   useEffect(() => {
     loadSettings()
@@ -506,16 +512,20 @@ function App() {
   async function handleInspectPlaylist() {
     setPlaylistError("")
     setPlaylistInspection(null)
+    setInspectedPlaylistUrl("")
     setSelectedPlaylistIds(new Set())
     const validation = validateMediaUrl(playlistUrl)
     if (!validation.valid) {
       setPlaylistError(validation.message)
       return
     }
+    const requestedUrl = validation.url.toString()
     setPlaylistChecking(true)
     try {
-      const result = await inspectPlaylist(validation.url.toString())
+      const result = await inspectPlaylist(requestedUrl)
+      if (normalizedValidUrl(playlistUrlRef.current) !== requestedUrl) return
       setPlaylistInspection(result)
+      setInspectedPlaylistUrl(requestedUrl)
       const preferred = defaultForPlatform(settings, result.platform)
       const nextMode = result.platform === "soundCloud" ? "audio" : preferred.mode
       setPlaylistMode(nextMode)
@@ -744,7 +754,16 @@ function App() {
               <TabsContent value="playlist">
                 <PlaylistScreen
                   url={playlistUrl}
-                  setUrl={setPlaylistUrl}
+                  setUrl={(value) => {
+                    setPlaylistUrl(value)
+                    if (normalizedValidUrl(value) !== inspectedPlaylistUrl) {
+                      setPlaylistInspection(null)
+                      setInspectedPlaylistUrl("")
+                      setSelectedPlaylistIds(new Set())
+                      setPlaylistError("")
+                    }
+                  }}
+                  inspectedUrl={inspectedPlaylistUrl}
                   platform={detectPlatform(playlistUrl)}
                   validationMessage={playlistValidation && !playlistValidation.valid ? playlistValidation.message : ""}
                   checking={playlistChecking}
@@ -1128,6 +1147,7 @@ function DownloadScreen(props: {
 function PlaylistScreen(props: {
   url: string
   setUrl: (value: string) => void
+  inspectedUrl: string
   platform: ReturnType<typeof detectPlatform>
   validationMessage: string
   checking: boolean
@@ -1160,7 +1180,7 @@ function PlaylistScreen(props: {
   onCancel: (id: string) => void
   onOpenSettings: () => void
 }) {
-  const canDownload = Boolean(props.inspection?.downloadable && props.selectedIds.size > 0 && !props.checking)
+  const canDownload = Boolean(props.inspection?.downloadable && props.selectedIds.size > 0 && !props.checking && normalizedValidUrl(props.url) === props.inspectedUrl)
   const canUseVideo = props.inspection?.platform === "youTube"
   const canSaveSubtitles = Boolean(props.inspection?.downloadable && props.mode === "video")
   const presetOptions = presetOptionsForMode(props.mode)
