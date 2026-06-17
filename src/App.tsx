@@ -215,8 +215,16 @@ function App() {
         setOutputDir(loaded.defaultOutputFolder)
         setPlaylistOutputDir(loaded.defaultOutputFolder)
       })
-      .catch(() => setSettings(defaultSettings))
-    loadHistory().then(setHistory).catch(() => setHistory([]))
+      .catch((err) => {
+        setSettings(defaultSettings)
+        toast.error(readableError(err))
+      })
+    loadHistory()
+      .then(setHistory)
+      .catch((err) => {
+        setHistory([])
+        toast.error(readableError(err))
+      })
     refreshToolStatus()
     getVersion().then(setAppVersion).catch(() => setAppVersion(""))
   }, [])

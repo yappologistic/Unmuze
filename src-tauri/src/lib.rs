@@ -8,6 +8,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use url::Url;
@@ -246,6 +247,32 @@ fn user_error(message: &str, suggestion: &str) -> CommandError {
         message: message.to_string(),
         suggestion: suggestion.to_string(),
     }
+}
+
+fn data_parse_error(label: &str, backup_path: Option<PathBuf>) -> CommandError {
+    let suggestion = backup_path
+        .map(|path| {
+            format!(
+                "A backup was saved to {}. Restore a valid file or remove the damaged one to start fresh.",
+                path.display()
+            )
+        })
+        .unwrap_or_else(|| {
+            "Restore a valid file or remove the damaged one from the app data folder to start fresh."
+                .to_string()
+        });
+    user_error(&format!("{label} could not be read."), &suggestion)
+}
+
+fn backup_invalid_file(path: &Path) -> Option<PathBuf> {
+    let file_name = path.file_name()?.to_string_lossy();
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_millis();
+    let backup_path = path.with_file_name(format!("{file_name}.invalid-{timestamp}.bak"));
+    fs::copy(path, &backup_path).ok()?;
+    Some(backup_path)
 }
 
 fn executable_suffix() -> &'static str {
@@ -860,21 +887,29 @@ fn normalize_settings(mut settings: Settings) -> Settings {
     settings
 }
 
+fn parse_settings_data(data: &str) -> AppResult<Settings> {
+    serde_json::from_str(data)
+        .map(normalize_settings)
+        .map_err(|_| data_parse_error("Settings", None))
+}
+
+fn parse_history_data(data: &str) -> AppResult<Vec<HistoryItem>> {
+    serde_json::from_str(data).map_err(|_| data_parse_error("Download history", None))
+}
+
 #[tauri::command]
 fn load_settings(app: AppHandle) -> AppResult<Settings> {
     let path = app_dir(&app)?.join("settings.json");
     if !path.exists() {
         return Ok(default_settings());
     }
-    let data = fs::read_to_string(path).map_err(|_| {
+    let data = fs::read_to_string(&path).map_err(|_| {
         user_error(
             "Settings could not be read.",
             "The app will continue with safe defaults.",
         )
     })?;
-    Ok(normalize_settings(
-        serde_json::from_str(&data).unwrap_or_else(|_| default_settings()),
-    ))
+    parse_settings_data(&data).map_err(|_| data_parse_error("Settings", backup_invalid_file(&path)))
 }
 
 #[tauri::command]
@@ -902,13 +937,14 @@ fn load_history(app: AppHandle) -> AppResult<Vec<HistoryItem>> {
     if !path.exists() {
         return Ok(vec![]);
     }
-    let data = fs::read_to_string(path).map_err(|_| {
+    let data = fs::read_to_string(&path).map_err(|_| {
         user_error(
             "Download history could not be read.",
             "You can clear history from Settings if it looks incorrect.",
         )
     })?;
-    Ok(serde_json::from_str(&data).unwrap_or_default())
+    parse_history_data(&data)
+        .map_err(|_| data_parse_error("Download history", backup_invalid_file(&path)))
 }
 
 #[tauri::command]
@@ -1751,9 +1787,10 @@ mod tests {
     use super::{
         append_audio_preset_args, append_chapter_args, append_metadata_args, append_subtitle_args,
         append_video_preset_args, audio_extension, detect_platform, is_download_platform,
-        is_tiktok_video_url, normalize_settings, safe_output_path, sanitize_format_id,
-        sanitize_subtitle_language, selected_video_selector, tool_asset, validate_public_url,
-        video_selector, Platform, Settings, FFMPEG_VERSION, YT_DLP_VERSION,
+        is_tiktok_video_url, normalize_settings, parse_history_data, parse_settings_data,
+        safe_output_path, sanitize_format_id, sanitize_subtitle_language, selected_video_selector,
+        tool_asset, validate_public_url, video_selector, Platform, Settings, FFMPEG_VERSION,
+        YT_DLP_VERSION,
     };
     use std::{fs, path::Path};
 
@@ -1964,6 +2001,20 @@ mod tests {
         assert_eq!(sound_cloud.quality, "audio-opus");
         assert_eq!(tik_tok.mode, "video");
         assert_eq!(tik_tok.quality, "video-mp4-best");
+    }
+
+    #[test]
+    fn rejects_damaged_settings_json() {
+        let error = parse_settings_data("{ not valid json").expect_err("damaged settings fail");
+        assert_eq!(error.message, "Settings could not be read.");
+        assert!(error.suggestion.contains("Restore a valid file"));
+    }
+
+    #[test]
+    fn rejects_damaged_history_json() {
+        let error = parse_history_data("{ not valid json").expect_err("damaged history fail");
+        assert_eq!(error.message, "Download history could not be read.");
+        assert!(error.suggestion.contains("Restore a valid file"));
     }
 
     #[test]
