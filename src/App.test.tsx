@@ -204,6 +204,15 @@ describe("Library screen", () => {
     expect(document.getElementById(playlistDescription || "")).toHaveTextContent("Paste a YouTube playlist")
   })
 
+  it("exposes selected state on format segmented buttons", async () => {
+    await act(async () => {
+      render(<App />)
+    })
+
+    expect(screen.getByRole("button", { name: "Audio", pressed: true })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Video", pressed: false })).toBeInTheDocument()
+  })
+
   it("filters by search, platform, and grouping without losing reset recovery", async () => {
     render(<App />)
 

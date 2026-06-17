@@ -1059,10 +1059,10 @@ function DownloadScreen(props: {
               <Field>
                 <FieldLabel>Format</FieldLabel>
                 <div className="grid grid-cols-2 gap-2">
-                  <Button className="h-12" variant={props.mode === "audio" ? "default" : "outline"} onClick={() => changeMode("audio")} disabled={!canDownload}>
+                  <Button className="h-12" variant={props.mode === "audio" ? "default" : "outline"} onClick={() => changeMode("audio")} disabled={!canDownload} aria-pressed={props.mode === "audio"}>
                     <MusicIcon data-icon="inline-start" />Audio
                   </Button>
-                  <Button className="h-12" variant={props.mode === "video" ? "default" : "outline"} onClick={() => changeMode("video")} disabled={!canDownload || !props.inspection?.formats.includes("video")}>
+                  <Button className="h-12" variant={props.mode === "video" ? "default" : "outline"} onClick={() => changeMode("video")} disabled={!canDownload || !props.inspection?.formats.includes("video")} aria-pressed={props.mode === "video"}>
                     <VideoIcon data-icon="inline-start" />Video
                   </Button>
                 </div>
@@ -1246,10 +1246,10 @@ function PlaylistScreen(props: {
               <Field>
                 <FieldLabel>Format</FieldLabel>
                 <div className="grid grid-cols-2 gap-2">
-                  <Button className="h-12" variant={props.mode === "audio" ? "default" : "outline"} onClick={() => changeMode("audio")} disabled={!props.inspection?.downloadable}>
+                  <Button className="h-12" variant={props.mode === "audio" ? "default" : "outline"} onClick={() => changeMode("audio")} disabled={!props.inspection?.downloadable} aria-pressed={props.mode === "audio"}>
                     <MusicIcon data-icon="inline-start" />Audio
                   </Button>
-                  <Button className="h-12" variant={props.mode === "video" ? "default" : "outline"} onClick={() => changeMode("video")} disabled={!props.inspection?.downloadable || !canUseVideo}>
+                  <Button className="h-12" variant={props.mode === "video" ? "default" : "outline"} onClick={() => changeMode("video")} disabled={!props.inspection?.downloadable || !canUseVideo} aria-pressed={props.mode === "video"}>
                     <VideoIcon data-icon="inline-start" />Video
                   </Button>
                 </div>
