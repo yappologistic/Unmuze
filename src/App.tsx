@@ -115,6 +115,11 @@ function joinOutputDirPreview(outputDir: string, folderName: string) {
   return `${outputDir.replace(/[\\/]+$/, "")}${separator}${folderName}`
 }
 
+function normalizedValidUrl(rawUrl: string) {
+  const validation = validateMediaUrl(rawUrl)
+  return validation.valid ? validation.url.toString() : ""
+}
+
 async function copyTextToClipboard(value: string, successMessage: string, errorMessage: string) {
   try {
     await navigator.clipboard.writeText(value)
@@ -135,6 +140,7 @@ const navigationItems = [
 function App() {
   const [tab, setTab] = useState("download")
   const [url, setUrl] = useState("")
+  const [inspectedUrl, setInspectedUrl] = useState("")
   const [inspection, setInspection] = useState<Inspection | null>(null)
   const [checking, setChecking] = useState(false)
   const [error, setError] = useState("")
@@ -177,8 +183,13 @@ function App() {
   const activePlaylistDownloadIdsRef = useRef<Set<string>>(new Set())
   const playlistDownloadIdsRef = useRef<Set<string>>(new Set())
   const cancelledQueuedIdsRef = useRef<Set<string>>(new Set())
+  const urlRef = useRef(url)
   const contentScrollRef = useRef<HTMLDivElement>(null)
   const mediaToolsNotificationShownRef = useRef(false)
+
+  useEffect(() => {
+    urlRef.current = url
+  }, [url])
 
   useEffect(() => {
     loadSettings()
@@ -362,15 +373,19 @@ function App() {
   async function handleInspect() {
     setError("")
     setInspection(null)
+    setInspectedUrl("")
     const validation = validateMediaUrl(url)
     if (!validation.valid) {
       setError(validation.message)
       return
     }
+    const requestedUrl = validation.url.toString()
     setChecking(true)
     try {
-      const result = await inspectMedia(validation.url.toString())
+      const result = await inspectMedia(requestedUrl)
+      if (normalizedValidUrl(urlRef.current) !== requestedUrl) return
       setInspection(result)
+      setInspectedUrl(requestedUrl)
       const preferred = defaultForPlatform(settings, result.platform)
       const nextMode = result.formats.includes(preferred.mode) ? preferred.mode : "audio"
       setMode(nextMode)
@@ -682,7 +697,16 @@ function App() {
               <TabsContent value="download">
                 <DownloadScreen
                   url={url}
-                  setUrl={setUrl}
+                  setUrl={(value) => {
+                    setUrl(value)
+                    if (normalizedValidUrl(value) !== inspectedUrl) {
+                      setInspection(null)
+                      setInspectedUrl("")
+                      setError("")
+                      setSelectedFormatId("")
+                    }
+                  }}
+                  inspectedUrl={inspectedUrl}
                   platform={platform}
                   validationMessage={urlValidation && !urlValidation.valid ? urlValidation.message : ""}
                   checking={checking}
@@ -927,6 +951,7 @@ function ThemeSegmentedControl({
 function DownloadScreen(props: {
   url: string
   setUrl: (value: string) => void
+  inspectedUrl: string
   platform: ReturnType<typeof detectPlatform>
   validationMessage: string
   checking: boolean
@@ -957,7 +982,7 @@ function DownloadScreen(props: {
   onCancel: (id: string) => void
   onOpenSettings: () => void
 }) {
-  const canDownload = Boolean(props.inspection?.downloadable && !props.checking)
+  const canDownload = Boolean(props.inspection?.downloadable && !props.checking && normalizedValidUrl(props.url) === props.inspectedUrl)
   const canSaveSubtitles = canDownload && props.mode === "video"
   const presetOptions = presetOptionsForMode(props.mode)
   const selectedPreset = presetDetails(props.quality, props.mode)
