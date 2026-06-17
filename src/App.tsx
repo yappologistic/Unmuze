@@ -52,12 +52,15 @@ import {
   clampPlaylistConcurrency,
   defaultSettings,
   detectPlatform,
+  defaultForPlatform,
   estimatedFileType,
   formatDetailLabel,
   formatDetailSummary,
   formatDetailsForMode,
   formatDuration,
   normalizePresetForMode,
+  normalizePlatformDefault,
+  normalizePlatformDefaults,
   type DownloadItem,
   type DownloadMode,
   type DownloadPreset,
@@ -65,6 +68,7 @@ import {
   type Inspection,
   isLikelyPlaylistUrl,
   platformLabel,
+  type PlatformWithDefaults,
   type PlaylistEntry,
   type PlaylistInspection,
   presetDetails,
@@ -160,11 +164,15 @@ function App() {
   useEffect(() => {
     loadSettings()
       .then((loaded) => {
-        setSettings(loaded)
-        setMode(loaded.defaultFormat)
-        setPlaylistMode(loaded.defaultFormat)
-        setQuality(normalizePresetForMode(loaded.defaultQuality, loaded.defaultFormat))
-        setPlaylistQuality(normalizePresetForMode(loaded.defaultQuality, loaded.defaultFormat))
+        const normalized = {
+          ...loaded,
+          platformDefaults: normalizePlatformDefaults(loaded.platformDefaults, loaded.defaultFormat, loaded.defaultQuality),
+        }
+        setSettings(normalized)
+        setMode(normalized.defaultFormat)
+        setPlaylistMode(normalized.defaultFormat)
+        setQuality(normalizePresetForMode(normalized.defaultQuality, normalized.defaultFormat))
+        setPlaylistQuality(normalizePresetForMode(normalized.defaultQuality, normalized.defaultFormat))
         setOutputDir(loaded.defaultOutputFolder)
         setPlaylistOutputDir(loaded.defaultOutputFolder)
       })
@@ -337,9 +345,10 @@ function App() {
     try {
       const result = await inspectMedia(validation.url.toString())
       setInspection(result)
-      const nextMode = result.formats.includes(settings.defaultFormat) ? settings.defaultFormat : "audio"
+      const preferred = defaultForPlatform(settings, result.platform)
+      const nextMode = result.formats.includes(preferred.mode) ? preferred.mode : "audio"
       setMode(nextMode)
-      setQuality(normalizePresetForMode(settings.defaultQuality, nextMode))
+      setQuality(normalizePresetForMode(preferred.quality, nextMode))
       setSelectedFormatId("")
       if (nextMode === "audio") setSaveSubtitles(false)
       setFileName(sanitizeFilename(result.suggestedFileName || result.title || "download"))
@@ -458,9 +467,10 @@ function App() {
     try {
       const result = await inspectPlaylist(validation.url.toString())
       setPlaylistInspection(result)
-      const nextMode = result.platform === "soundCloud" ? "audio" : settings.defaultFormat
+      const preferred = defaultForPlatform(settings, result.platform)
+      const nextMode = result.platform === "soundCloud" ? "audio" : preferred.mode
       setPlaylistMode(nextMode)
-      setPlaylistQuality(normalizePresetForMode(settings.defaultQuality, nextMode))
+      setPlaylistQuality(normalizePresetForMode(preferred.quality, nextMode))
       if (nextMode === "audio") setPlaylistSaveSubtitles(false)
       if (result.downloadable) {
         setSelectedPlaylistIds(new Set(result.entries.map(playlistEntryKey)))
@@ -1794,6 +1804,96 @@ function LibraryScreen({
   )
 }
 
+const platformDefaultRows: Array<{ platform: PlatformWithDefaults; description: string }> = [
+  { platform: "youTube", description: "Applies to videos and playlists after inspection." },
+  { platform: "soundCloud", description: "SoundCloud downloads are audio-only." },
+  { platform: "tikTok", description: "Applies to individual TikTok videos after inspection." },
+]
+
+function PlatformDefaultsPanel({
+  settings,
+  onSave,
+}: {
+  settings: Settings
+  onSave: (settings: Settings) => void
+}) {
+  const platformDefaults = normalizePlatformDefaults(settings.platformDefaults, settings.defaultFormat, settings.defaultQuality)
+
+  function updatePlatformDefault(platform: PlatformWithDefaults, mode: DownloadMode, quality = platformDefaults[platform].quality) {
+    const nextDefault = normalizePlatformDefault(platform, { mode, quality }, {
+      mode: settings.defaultFormat,
+      quality: settings.defaultQuality,
+    })
+    onSave({
+      ...settings,
+      platformDefaults: {
+        ...platformDefaults,
+        [platform]: nextDefault,
+      },
+    })
+  }
+
+  return (
+    <div className="soft-panel rounded-2xl p-4">
+      <div className="mb-4">
+        <FieldLabel>Platform defaults</FieldLabel>
+        <FieldDescription>These replace the general default when a supported platform is detected.</FieldDescription>
+      </div>
+      <div className="divide-y divide-border/70">
+        {platformDefaultRows.map(({ platform, description }) => {
+          const current = platformDefaults[platform]
+          const canUseVideo = platform !== "soundCloud"
+          return (
+            <div key={platform} className="grid gap-3 py-4 first:pt-0 last:pb-0">
+              <div className="min-w-0">
+                <FieldLabel>{platformLabel(platform)}</FieldLabel>
+                <FieldDescription>{description}</FieldDescription>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-[12rem_minmax(0,1fr)]">
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    className="h-10"
+                    variant={current.mode === "audio" ? "default" : "outline"}
+                    aria-pressed={current.mode === "audio"}
+                    onClick={() => updatePlatformDefault(platform, "audio")}
+                  >
+                    <MusicIcon data-icon="inline-start" />Audio
+                  </Button>
+                  <Button
+                    type="button"
+                    className="h-10"
+                    variant={current.mode === "video" ? "default" : "outline"}
+                    aria-pressed={current.mode === "video"}
+                    disabled={!canUseVideo}
+                    onClick={() => updatePlatformDefault(platform, "video")}
+                  >
+                    <VideoIcon data-icon="inline-start" />Video
+                  </Button>
+                </div>
+                <div className="min-w-0">
+                  <Select
+                    aria-label={`${platformLabel(platform)} preset`}
+                    value={normalizePresetForMode(current.quality, current.mode)}
+                    onValueChange={(value) => updatePlatformDefault(platform, current.mode, normalizePresetForMode(value, current.mode))}
+                  >
+                    <SelectGroup>
+                      {presetOptionsForMode(current.mode).map((option) => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </Select>
+                  <FieldDescription className="mt-2">{presetDetails(current.quality, current.mode).description}</FieldDescription>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function SettingsScreen({
   settings,
   toolStatus,
@@ -1876,6 +1976,7 @@ function SettingsScreen({
               </Select>
               <FieldDescription>{presetDetails(normalizePresetForMode(settings.defaultQuality, settings.defaultFormat), settings.defaultFormat).description}</FieldDescription>
             </Field>
+            <PlatformDefaultsPanel settings={settings} onSave={onSave} />
             <Field>
               <FieldLabel htmlFor="settings-default-output-folder">Default output folder</FieldLabel>
               <Input id="settings-default-output-folder" value={settings.defaultOutputFolder} onChange={(event) => onSave({ ...settings, defaultOutputFolder: event.target.value })} />

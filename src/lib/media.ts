@@ -75,9 +75,19 @@ export type Settings = {
   defaultOutputFolder: string
   defaultFormat: DownloadMode
   defaultQuality: DownloadPreset
+  platformDefaults: PlatformDefaults
   playlistConcurrency: number
   keepHistory: boolean
 }
+
+export type PlatformWithDefaults = "youTube" | "soundCloud" | "tikTok"
+
+export type PlatformDefault = {
+  mode: DownloadMode
+  quality: DownloadPreset
+}
+
+export type PlatformDefaults = Record<PlatformWithDefaults, PlatformDefault>
 
 export type ToolDetail = {
   name: string
@@ -148,6 +158,11 @@ export const defaultSettings: Settings = {
   defaultOutputFolder: "",
   defaultFormat: "audio",
   defaultQuality: "best",
+  platformDefaults: {
+    youTube: { mode: "audio", quality: "best" },
+    soundCloud: { mode: "audio", quality: "best" },
+    tikTok: { mode: "audio", quality: "best" },
+  },
   playlistConcurrency: 2,
   keepHistory: true,
 }
@@ -191,6 +206,57 @@ export function isPresetAllowedForMode(preset: string, mode: DownloadMode): pres
 
 export function normalizePresetForMode(preset: string, mode: DownloadMode): DownloadPreset {
   return isPresetAllowedForMode(preset, mode) ? preset : "best"
+}
+
+export function defaultModeForPlatform(platform: Platform, fallback: DownloadMode = "audio"): DownloadMode {
+  return platform === "soundCloud" ? "audio" : fallback
+}
+
+export function normalizePlatformDefault(
+  platform: PlatformWithDefaults,
+  value: Partial<PlatformDefault> | undefined,
+  fallback: PlatformDefault = { mode: "audio", quality: "best" },
+): PlatformDefault {
+  const fallbackMode = defaultModeForPlatform(platform, fallback.mode)
+  const mode = defaultModeForPlatform(platform, value?.mode === "video" ? "video" : value?.mode === "audio" ? "audio" : fallbackMode)
+  return {
+    mode,
+    quality: normalizePresetForMode(value?.quality || fallback.quality, mode),
+  }
+}
+
+export function defaultPlatformDefaults(format: DownloadMode = "audio", quality: DownloadPreset = "best"): PlatformDefaults {
+  return {
+    youTube: normalizePlatformDefault("youTube", undefined, { mode: format, quality }),
+    soundCloud: normalizePlatformDefault("soundCloud", undefined, { mode: format, quality }),
+    tikTok: normalizePlatformDefault("tikTok", undefined, { mode: format, quality }),
+  }
+}
+
+export function normalizePlatformDefaults(
+  value: Partial<PlatformDefaults> | undefined,
+  format: DownloadMode = "audio",
+  quality: DownloadPreset = "best",
+): PlatformDefaults {
+  const fallback = { mode: format, quality }
+  return {
+    youTube: normalizePlatformDefault("youTube", value?.youTube, fallback),
+    soundCloud: normalizePlatformDefault("soundCloud", value?.soundCloud, fallback),
+    tikTok: normalizePlatformDefault("tikTok", value?.tikTok, fallback),
+  }
+}
+
+export function defaultForPlatform(settings: Settings, platform: Platform): PlatformDefault {
+  if (platform === "youTube" || platform === "soundCloud" || platform === "tikTok") {
+    return normalizePlatformDefault(platform, settings.platformDefaults?.[platform], {
+      mode: settings.defaultFormat,
+      quality: settings.defaultQuality,
+    })
+  }
+  return {
+    mode: settings.defaultFormat,
+    quality: normalizePresetForMode(settings.defaultQuality, settings.defaultFormat),
+  }
 }
 
 export function presetDetails(preset: DownloadPreset, mode: DownloadMode) {

@@ -3,6 +3,8 @@ import {
   audioPresetOptions,
   canTransitionDownload,
   clampPlaylistConcurrency,
+  defaultForPlatform,
+  defaultPlatformDefaults,
   defaultSettings,
   detectPlatform,
   estimatedFileType,
@@ -12,6 +14,8 @@ import {
   isPresetAllowedForMode,
   isLikelyPlaylistUrl,
   isLikelyTikTokVideoUrl,
+  normalizePlatformDefault,
+  normalizePlatformDefaults,
   normalizePresetForMode,
   platformLabel,
   presetDetails,
@@ -84,8 +88,47 @@ describe("settings defaults", () => {
   it("defaults to local-first safe preferences", () => {
     expect(defaultSettings.theme).toBe("system")
     expect(defaultSettings.defaultFormat).toBe("audio")
+    expect(defaultSettings.platformDefaults.soundCloud.mode).toBe("audio")
     expect(defaultSettings.playlistConcurrency).toBe(2)
     expect(defaultSettings.keepHistory).toBe(true)
+  })
+
+  it("builds platform defaults from global fallback preferences", () => {
+    expect(defaultPlatformDefaults("video", "video-mp4-1080")).toEqual({
+      youTube: { mode: "video", quality: "video-mp4-1080" },
+      soundCloud: { mode: "audio", quality: "best" },
+      tikTok: { mode: "video", quality: "video-mp4-1080" },
+    })
+  })
+
+  it("normalizes platform defaults by mode and platform capability", () => {
+    expect(normalizePlatformDefault("youTube", { mode: "video", quality: "video-mp4-1080" })).toEqual({
+      mode: "video",
+      quality: "video-mp4-1080",
+    })
+    expect(normalizePlatformDefault("soundCloud", { mode: "video", quality: "video-mp4-1080" })).toEqual({
+      mode: "audio",
+      quality: "best",
+    })
+    expect(normalizePlatformDefaults({ tikTok: { mode: "video", quality: "audio-wav" } }).tikTok).toEqual({
+      mode: "video",
+      quality: "best",
+    })
+  })
+
+  it("resolves platform defaults with unsupported platforms falling back to global defaults", () => {
+    const settings = {
+      ...defaultSettings,
+      defaultFormat: "audio" as const,
+      defaultQuality: "audio-m4a" as const,
+      platformDefaults: {
+        ...defaultSettings.platformDefaults,
+        youTube: { mode: "video" as const, quality: "video-mp4-720" as const },
+      },
+    }
+
+    expect(defaultForPlatform(settings, "youTube")).toEqual({ mode: "video", quality: "video-mp4-720" })
+    expect(defaultForPlatform(settings, "unsupported")).toEqual({ mode: "audio", quality: "audio-m4a" })
   })
 })
 

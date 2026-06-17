@@ -63,13 +63,40 @@ struct DownloadRequest {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Settings {
+    #[serde(default = "default_theme")]
     theme: String,
+    #[serde(default = "default_output_folder")]
     default_output_folder: String,
+    #[serde(default = "default_format")]
     default_format: String,
+    #[serde(default = "default_quality")]
     default_quality: String,
+    #[serde(default)]
+    platform_defaults: Option<PlatformDefaults>,
     #[serde(default = "default_playlist_concurrency")]
     playlist_concurrency: u8,
+    #[serde(default = "default_keep_history")]
     keep_history: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct PlatformDefault {
+    #[serde(default = "default_format")]
+    mode: String,
+    #[serde(default = "default_quality")]
+    quality: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct PlatformDefaults {
+    #[serde(default)]
+    you_tube: Option<PlatformDefault>,
+    #[serde(default)]
+    sound_cloud: Option<PlatformDefault>,
+    #[serde(default)]
+    tik_tok: Option<PlatformDefault>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -637,30 +664,165 @@ fn safe_output_path(output_dir: &str, file_name: &str) -> AppResult<PathBuf> {
 }
 
 fn default_settings() -> Settings {
-    let default_output_folder = dirs::download_dir()
+    Settings {
+        theme: default_theme(),
+        default_output_folder: default_output_folder(),
+        default_format: default_format(),
+        default_quality: default_quality(),
+        platform_defaults: Some(default_platform_defaults(&default_format(), &default_quality())),
+        playlist_concurrency: default_playlist_concurrency(),
+        keep_history: default_keep_history(),
+    }
+}
+
+fn default_theme() -> String {
+    "system".to_string()
+}
+
+fn default_output_folder() -> String {
+    dirs::download_dir()
         .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
         .to_string_lossy()
-        .to_string();
-    Settings {
-        theme: "system".to_string(),
-        default_output_folder,
-        default_format: "audio".to_string(),
-        default_quality: "best".to_string(),
-        playlist_concurrency: default_playlist_concurrency(),
-        keep_history: true,
-    }
+        .to_string()
+}
+
+fn default_format() -> String {
+    "audio".to_string()
+}
+
+fn default_quality() -> String {
+    "best".to_string()
 }
 
 fn default_playlist_concurrency() -> u8 {
     2
 }
 
+fn default_keep_history() -> bool {
+    true
+}
+
 fn default_subtitle_language() -> String {
     "en".to_string()
 }
 
+fn normalize_mode(value: &str, force_audio: bool) -> String {
+    if force_audio {
+        return "audio".to_string();
+    }
+    match value {
+        "video" => "video".to_string(),
+        _ => "audio".to_string(),
+    }
+}
+
+fn normalize_quality(value: &str, mode: &str) -> String {
+    let allowed = if mode == "video" {
+        matches!(
+            value,
+            "best" | "balanced" | "video-mp4-best" | "video-mp4-1080" | "video-mp4-720"
+        )
+    } else {
+        matches!(
+            value,
+            "best" | "balanced" | "audio-mp3" | "audio-m4a" | "audio-opus" | "audio-wav"
+        )
+    };
+    if allowed {
+        value.to_string()
+    } else {
+        "best".to_string()
+    }
+}
+
+fn default_platform_default(format: &str, quality: &str, force_audio: bool) -> PlatformDefault {
+    let mode = normalize_mode(format, force_audio);
+    PlatformDefault {
+        quality: normalize_quality(quality, &mode),
+        mode,
+    }
+}
+
+fn normalize_platform_default(
+    value: Option<PlatformDefault>,
+    fallback_format: &str,
+    fallback_quality: &str,
+    force_audio: bool,
+) -> PlatformDefault {
+    let fallback = default_platform_default(fallback_format, fallback_quality, force_audio);
+    let Some(value) = value else {
+        return fallback;
+    };
+    let mode = normalize_mode(
+        if value.mode.is_empty() {
+            &fallback.mode
+        } else {
+            &value.mode
+        },
+        force_audio,
+    );
+    PlatformDefault {
+        quality: normalize_quality(
+            if value.quality.is_empty() {
+                &fallback.quality
+            } else {
+                &value.quality
+            },
+            &mode,
+        ),
+        mode,
+    }
+}
+
+fn default_platform_defaults(format: &str, quality: &str) -> PlatformDefaults {
+    PlatformDefaults {
+        you_tube: Some(default_platform_default(format, quality, false)),
+        sound_cloud: Some(default_platform_default(format, quality, true)),
+        tik_tok: Some(default_platform_default(format, quality, false)),
+    }
+}
+
+fn normalize_platform_defaults(
+    value: Option<PlatformDefaults>,
+    fallback_format: &str,
+    fallback_quality: &str,
+) -> PlatformDefaults {
+    let value = value.unwrap_or(PlatformDefaults {
+        you_tube: None,
+        sound_cloud: None,
+        tik_tok: None,
+    });
+    PlatformDefaults {
+        you_tube: Some(normalize_platform_default(
+            value.you_tube,
+            fallback_format,
+            fallback_quality,
+            false,
+        )),
+        sound_cloud: Some(normalize_platform_default(
+            value.sound_cloud,
+            fallback_format,
+            fallback_quality,
+            true,
+        )),
+        tik_tok: Some(normalize_platform_default(
+            value.tik_tok,
+            fallback_format,
+            fallback_quality,
+            false,
+        )),
+    }
+}
+
 fn normalize_settings(mut settings: Settings) -> Settings {
     settings.playlist_concurrency = settings.playlist_concurrency.clamp(1, 3);
+    settings.default_format = normalize_mode(&settings.default_format, false);
+    settings.default_quality = normalize_quality(&settings.default_quality, &settings.default_format);
+    settings.platform_defaults = Some(normalize_platform_defaults(
+        settings.platform_defaults,
+        &settings.default_format,
+        &settings.default_quality,
+    ));
     settings
 }
 
@@ -1718,16 +1880,50 @@ mod tests {
         }"#;
         let parsed: Settings = serde_json::from_str(legacy).expect("legacy settings");
         assert_eq!(parsed.playlist_concurrency, 2);
+        assert!(parsed.platform_defaults.is_none());
 
         let normalized = normalize_settings(Settings {
             theme: "system".to_string(),
             default_output_folder: String::new(),
-            default_format: "audio".to_string(),
-            default_quality: "best".to_string(),
+            default_format: "video".to_string(),
+            default_quality: "video-mp4-1080".to_string(),
+            platform_defaults: None,
             playlist_concurrency: 9,
             keep_history: true,
         });
         assert_eq!(normalized.playlist_concurrency, 3);
+        let platform_defaults = normalized.platform_defaults.expect("platform defaults");
+        assert_eq!(platform_defaults.you_tube.unwrap().mode, "video");
+        assert_eq!(platform_defaults.sound_cloud.unwrap().mode, "audio");
+        assert_eq!(platform_defaults.tik_tok.unwrap().quality, "video-mp4-1080");
+    }
+
+    #[test]
+    fn normalizes_partial_platform_defaults_settings() {
+        let settings = r#"{
+            "theme": "system",
+            "defaultOutputFolder": "",
+            "defaultFormat": "video",
+            "defaultQuality": "video-mp4-best",
+            "platformDefaults": {
+                "youTube": { "mode": "video", "quality": "audio-wav" },
+                "soundCloud": { "mode": "video", "quality": "audio-opus" }
+            },
+            "playlistConcurrency": 2,
+            "keepHistory": true
+        }"#;
+        let normalized = normalize_settings(serde_json::from_str(settings).expect("partial defaults"));
+        let platform_defaults = normalized.platform_defaults.expect("platform defaults");
+        let you_tube = platform_defaults.you_tube.expect("youtube defaults");
+        let sound_cloud = platform_defaults.sound_cloud.expect("soundcloud defaults");
+        let tik_tok = platform_defaults.tik_tok.expect("tiktok defaults");
+
+        assert_eq!(you_tube.mode, "video");
+        assert_eq!(you_tube.quality, "best");
+        assert_eq!(sound_cloud.mode, "audio");
+        assert_eq!(sound_cloud.quality, "audio-opus");
+        assert_eq!(tik_tok.mode, "video");
+        assert_eq!(tik_tok.quality, "video-mp4-best");
     }
 
     #[test]

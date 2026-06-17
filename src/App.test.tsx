@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import App from "@/App"
 import type { HistoryItem } from "@/lib/media"
+import { inspectMedia, saveSettings } from "@/lib/tauri"
 
 const { libraryItems, revealPathMock, testSettings } = vi.hoisted(() => ({
   libraryItems: [
@@ -47,6 +48,11 @@ const { libraryItems, revealPathMock, testSettings } = vi.hoisted(() => ({
     defaultOutputFolder: "",
     defaultFormat: "audio",
     defaultQuality: "best",
+    platformDefaults: {
+      youTube: { mode: "audio", quality: "best" },
+      soundCloud: { mode: "audio", quality: "best" },
+      tikTok: { mode: "audio", quality: "best" },
+    },
     playlistConcurrency: 2,
     keepHistory: true,
   },
@@ -96,6 +102,19 @@ vi.mock("@/lib/tauri", () => ({
 describe("Library screen", () => {
   beforeEach(() => {
     revealPathMock.mockClear()
+    vi.mocked(inspectMedia).mockReset()
+    vi.mocked(saveSettings).mockClear()
+    testSettings.theme = "system"
+    testSettings.defaultOutputFolder = ""
+    testSettings.defaultFormat = "audio"
+    testSettings.defaultQuality = "best"
+    testSettings.platformDefaults = {
+      youTube: { mode: "audio", quality: "best" },
+      soundCloud: { mode: "audio", quality: "best" },
+      tikTok: { mode: "audio", quality: "best" },
+    }
+    testSettings.playlistConcurrency = 2
+    testSettings.keepHistory = true
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: vi.fn(() => Promise.resolve()) },
@@ -157,5 +176,49 @@ describe("Library screen", () => {
 
     fireEvent.click(openButtons[0])
     expect(revealPathMock).toHaveBeenCalledWith("C:\\tmp\\unmuze-library-check\\existing-audio.mp3")
+  })
+
+  it("saves platform-specific defaults from Settings", async () => {
+    render(<App />)
+
+    fireEvent.click(screen.getAllByRole("tab", { name: "Settings" })[0])
+    expect(await screen.findByText("Platform defaults")).toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Video" })[0])
+    fireEvent.change(screen.getByLabelText("YouTube preset"), { target: { value: "video-mp4-1080" } })
+
+    await waitFor(() =>
+      expect(vi.mocked(saveSettings)).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          platformDefaults: expect.objectContaining({
+            youTube: { mode: "video", quality: "video-mp4-1080" },
+          }),
+        }),
+      ),
+    )
+  })
+
+  it("applies the inspected platform default to save options", async () => {
+    testSettings.platformDefaults.youTube = { mode: "video", quality: "video-mp4-720" }
+    vi.mocked(inspectMedia).mockResolvedValueOnce({
+      platform: "youTube",
+      downloadable: true,
+      title: "Platform Default Video",
+      creator: "Codex Channel",
+      duration: 60,
+      thumbnail: null,
+      formats: ["audio", "video"],
+      suggestedFileName: "Platform Default Video",
+    })
+    render(<App />)
+
+    fireEvent.click(screen.getAllByRole("tab", { name: "Settings" })[0])
+    await waitFor(() => expect(screen.getByLabelText("YouTube preset")).toHaveValue("video-mp4-720"))
+    fireEvent.click(screen.getAllByRole("tab", { name: "Download" })[0])
+    fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://www.youtube.com/watch?v=platformdefault" } })
+    fireEvent.click(screen.getByRole("button", { name: "Check" }))
+
+    await waitFor(() => expect(screen.getByLabelText("Preset")).toHaveValue("video-mp4-720"))
+    expect(screen.getByText("Output type: MP4 video. Metadata and artwork are embedded when supported.")).toBeInTheDocument()
   })
 })
