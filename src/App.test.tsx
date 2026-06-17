@@ -435,6 +435,39 @@ describe("Library screen", () => {
     expect(vi.mocked(startDownload)).toHaveBeenCalledTimes(1)
   })
 
+  it("shows playlist progress as complete when all items are terminal", async () => {
+    vi.mocked(inspectPlaylist).mockResolvedValueOnce({
+      platform: "youTube",
+      downloadable: true,
+      title: "Terminal Progress Playlist",
+      creator: "Codex Channel",
+      entries: [
+        { id: "a", url: "https://www.youtube.com/watch?v=a", title: "First Song", index: 1, duration: 90 },
+        { id: "b", url: "https://www.youtube.com/watch?v=b", title: "Second Song", index: 2, duration: 120 },
+      ],
+    })
+    vi.mocked(startDownload).mockResolvedValue("C:\\tmp\\Terminal Progress Playlist\\item.mp3")
+    render(<App />)
+
+    fireEvent.click(screen.getAllByRole("tab", { name: "Playlist" })[0])
+    fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://www.youtube.com/playlist?list=terminalprogress" } })
+    fireEvent.click(screen.getByRole("button", { name: "Check" }))
+    expect(await screen.findByText("Terminal Progress Playlist")).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText("Output folder"), { target: { value: "C:\\tmp" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save selected items" }))
+
+    await waitFor(() => expect(vi.mocked(startDownload)).toHaveBeenCalledTimes(2))
+    const requests = vi.mocked(startDownload).mock.calls.map(([request]) => request as { id: string })
+    await act(async () => {
+      downloadEvents.finished?.({ id: requests[0].id, status: "failed", path: "" })
+      downloadEvents.finished?.({ id: requests[1].id, status: "cancelled", path: "" })
+    })
+
+    expect(await screen.findByText("Finished")).toBeInTheDocument()
+    expect(screen.getByText("0 of 2 items saved · 1 failed · 1 cancelled")).toBeInTheDocument()
+    expect(screen.getByText("100%")).toBeInTheDocument()
+  })
+
   it("shows inline output folder validation before queueing playlist downloads", async () => {
     vi.mocked(inspectPlaylist).mockResolvedValueOnce({
       platform: "youTube",

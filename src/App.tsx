@@ -1343,9 +1343,10 @@ function PlaylistProgressSummary({ downloads }: { downloads: DownloadItem[] }) {
   const failed = downloads.filter((item) => item.status === "failed").length
   const cancelled = downloads.filter((item) => item.status === "cancelled").length
   const active = downloads.filter((item) => ["waiting", "downloading", "converting"].includes(item.status)).length
-  const progress = total ? Math.round((completed / total) * 100) : 0
+  const terminal = completed + failed + cancelled
+  const progress = total ? Math.round((terminal / total) * 100) : 0
   const current = downloads.find((item) => ["downloading", "converting"].includes(item.status))
-  const complete = total > 0 && completed + failed + cancelled === total
+  const complete = total > 0 && terminal === total
   return (
     <Card className={complete ? "" : "queue-active"}>
       <CardHeader className="flex-row items-start justify-between gap-4">
