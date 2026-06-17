@@ -132,10 +132,6 @@ const navigationItems = [
   { value: "help", label: "Help", shortLabel: "Help", icon: InfoIcon, accent: "text-muted-foreground" },
 ] as const
 
-function tabTitle(value: string) {
-  return navigationItems.find((item) => item.value === value)?.label ?? "Download"
-}
-
 function App() {
   const [tab, setTab] = useState("download")
   const [url, setUrl] = useState("")
@@ -665,9 +661,6 @@ function App() {
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <MobileHeader tab={tab} setTab={setTab} />
-          <WorkbenchHeader
-            tab={tab}
-          />
 
           <div ref={contentScrollRef} className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
             <Tabs value={tab} onValueChange={setTab} className="gap-0">
@@ -810,8 +803,17 @@ function DesktopSidebar({
         <TabsList className="grid h-auto w-full grid-cols-1 gap-1 bg-transparent p-0 text-muted-foreground">
           {navigationItems.map((item) => {
             const Icon = item.icon
+            const isActive = tab === item.value
             return (
-              <TabsTrigger key={item.value} value={item.value} className="h-12 justify-start px-4 text-[15px]">
+              <TabsTrigger
+                key={item.value}
+                value={item.value}
+                className="group relative h-12 justify-start border border-transparent px-4 pl-5 text-[15px] data-[state=active]:border-border data-[state=active]:shadow-sm"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`absolute left-2 h-6 w-1 rounded-full bg-current transition-opacity ${isActive ? "opacity-100" : "opacity-0"} ${item.accent}`}
+                />
                 <Icon className={item.accent} data-icon="inline-start" />
                 <span className="flex-1 text-left">{item.label}</span>
               </TabsTrigger>
@@ -847,19 +849,6 @@ function MobileHeader({ tab, setTab }: { tab: string; setTab: (value: string) =>
           ))}
         </TabsList>
       </Tabs>
-    </header>
-  )
-}
-
-function WorkbenchHeader({ tab }: { tab: string }) {
-  return (
-    <header className="hidden border-b bg-background/80 px-8 py-5 lg:block">
-      <div className="flex items-center justify-between gap-6">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Current view</p>
-          <h2 className="mt-1 text-2xl font-bold tracking-normal">{tabTitle(tab)}</h2>
-        </div>
-      </div>
     </header>
   )
 }
