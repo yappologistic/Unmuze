@@ -125,7 +125,7 @@ async function copyTextToClipboard(value: string, successMessage: string, errorM
 }
 
 const navigationItems = [
-  { value: "download", label: "Download", shortLabel: "Save", icon: LinkIcon, accent: "accent-blue" },
+  { value: "download", label: "Download", shortLabel: "Download", icon: LinkIcon, accent: "accent-blue" },
   { value: "playlist", label: "Playlist", shortLabel: "Playlist", icon: ListMusicIcon, accent: "accent-violet" },
   { value: "history", label: "Library", shortLabel: "Library", icon: HistoryIcon, accent: "accent-mint" },
   { value: "settings", label: "Settings", shortLabel: "Settings", icon: SettingsIcon, accent: "accent-orange" },
@@ -144,6 +144,7 @@ function App() {
   const [toolsInstalling, setToolsInstalling] = useState(false)
   const [appVersion, setAppVersion] = useState("")
   const [updateChecking, setUpdateChecking] = useState(false)
+  const [updateChecked, setUpdateChecked] = useState(false)
   const [updateInstalling, setUpdateInstalling] = useState(false)
   const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null)
   const [updateProgress, setUpdateProgress] = useState(0)
@@ -158,6 +159,7 @@ function App() {
   const [saveSubtitles, setSaveSubtitles] = useState(false)
   const [subtitleLanguage, setSubtitleLanguage] = useState("en")
   const [outputDir, setOutputDir] = useState("")
+  const [outputDirError, setOutputDirError] = useState("")
   const [fileName, setFileName] = useState("")
   const [playlistUrl, setPlaylistUrl] = useState("")
   const [playlistInspection, setPlaylistInspection] = useState<PlaylistInspection | null>(null)
@@ -169,6 +171,7 @@ function App() {
   const [playlistSaveSubtitles, setPlaylistSaveSubtitles] = useState(false)
   const [playlistSubtitleLanguage, setPlaylistSubtitleLanguage] = useState("en")
   const [playlistOutputDir, setPlaylistOutputDir] = useState("")
+  const [playlistOutputDirError, setPlaylistOutputDirError] = useState("")
   const [selectedPlaylistIds, setSelectedPlaylistIds] = useState<Set<string>>(new Set())
   const playlistQueueRef = useRef<PendingDownload[]>([])
   const activePlaylistDownloadIdsRef = useRef<Set<string>>(new Set())
@@ -419,11 +422,13 @@ function App() {
 
   async function handleCheckForUpdate() {
     setUpdateChecking(true)
+    setUpdateChecked(false)
     setUpdateProgress(0)
     setUpdateMessage("")
     try {
       const update = await check({ timeout: 30000 })
       setAvailableUpdate(update)
+      setUpdateChecked(true)
       setUpdateMessage(update ? `Version ${update.version} is available.` : "Unmuze is up to date.")
     } catch (err) {
       setAvailableUpdate(null)
@@ -469,12 +474,18 @@ function App() {
 
   async function handleChooseFolder() {
     const selected = await chooseFolder()
-    if (selected) setOutputDir(selected)
+    if (selected) {
+      setOutputDir(selected)
+      setOutputDirError("")
+    }
   }
 
   async function handleChoosePlaylistFolder() {
     const selected = await chooseFolder()
-    if (selected) setPlaylistOutputDir(selected)
+    if (selected) {
+      setPlaylistOutputDir(selected)
+      setPlaylistOutputDirError("")
+    }
   }
 
   async function handleInspectPlaylist() {
@@ -527,10 +538,12 @@ function App() {
 
   async function handleStartPlaylistDownload() {
     if (!playlistInspection?.downloadable) return
-    if (!playlistOutputDir) {
+    if (!playlistOutputDir.trim()) {
+      setPlaylistOutputDirError("Choose an output folder before saving selected playlist items.")
       toast.error("Choose an output folder first.")
       return
     }
+    setPlaylistOutputDirError("")
     const selectedEntries = playlistInspection.entries.filter((entry) => selectedPlaylistIds.has(playlistEntryKey(entry)))
     if (selectedEntries.length === 0) {
       toast.error("Select at least one playlist item.")
@@ -593,10 +606,12 @@ function App() {
 
   async function handleStartDownload() {
     if (!inspection?.downloadable) return
-    if (!outputDir) {
+    if (!outputDir.trim()) {
+      setOutputDirError("Choose an output folder before saving.")
       toast.error("Choose an output folder first.")
       return
     }
+    setOutputDirError("")
     const id = crypto.randomUUID()
     const item: DownloadItem = {
       id,
@@ -687,7 +702,11 @@ function App() {
                   subtitleLanguage={subtitleLanguage}
                   setSubtitleLanguage={setSubtitleLanguage}
                   outputDir={outputDir}
-                  setOutputDir={setOutputDir}
+                  setOutputDir={(value) => {
+                    setOutputDir(value)
+                    if (value.trim()) setOutputDirError("")
+                  }}
+                  outputDirError={outputDirError}
                   fileName={fileName}
                   setFileName={setFileName}
                   downloads={downloads}
@@ -723,7 +742,11 @@ function App() {
                   subtitleLanguage={playlistSubtitleLanguage}
                   setSubtitleLanguage={setPlaylistSubtitleLanguage}
                   outputDir={playlistOutputDir}
-                  setOutputDir={setPlaylistOutputDir}
+                  setOutputDir={(value) => {
+                    setPlaylistOutputDir(value)
+                    if (value.trim()) setPlaylistOutputDirError("")
+                  }}
+                  outputDirError={playlistOutputDirError}
                   downloads={downloads}
                   onInspect={handleInspectPlaylist}
                   onChooseFolder={handleChoosePlaylistFolder}
@@ -754,6 +777,7 @@ function App() {
                   toolsInstalling={toolsInstalling}
                   appVersion={appVersion}
                   updateChecking={updateChecking}
+                  updateChecked={updateChecked}
                   updateInstalling={updateInstalling}
                   availableUpdate={availableUpdate}
                   updateProgress={updateProgress}
@@ -923,6 +947,7 @@ function DownloadScreen(props: {
   setSubtitleLanguage: (value: string) => void
   outputDir: string
   setOutputDir: (value: string) => void
+  outputDirError: string
   fileName: string
   setFileName: (value: string) => void
   downloads: DownloadItem[]
@@ -1032,12 +1057,20 @@ function DownloadScreen(props: {
                     : "Inspect a downloadable URL to see source formats, codecs, bitrate, fps, and container details."}
                 </FieldDescription>
               </Field>
-              <Field>
+              <Field data-invalid={Boolean(props.outputDirError)}>
                 <FieldLabel htmlFor="output-folder">Output folder</FieldLabel>
                 <div className="flex gap-2">
-                  <Input id="output-folder" value={props.outputDir} onChange={(event) => props.setOutputDir(event.target.value)} placeholder="Choose a folder" />
+                  <Input
+                    id="output-folder"
+                    value={props.outputDir}
+                    onChange={(event) => props.setOutputDir(event.target.value)}
+                    placeholder="Choose a folder"
+                    aria-invalid={Boolean(props.outputDirError)}
+                    aria-describedby={props.outputDirError ? "output-folder-error" : undefined}
+                  />
                   <Button variant="outline" size="icon" onClick={props.onChooseFolder} aria-label="Choose folder"><FolderIcon /></Button>
                 </div>
+                {props.outputDirError ? <FieldDescription id="output-folder-error" className="text-destructive">{props.outputDirError}</FieldDescription> : null}
               </Field>
               <Field>
                 <FieldLabel htmlFor="file-name">File name</FieldLabel>
@@ -1092,6 +1125,7 @@ function PlaylistScreen(props: {
   setSubtitleLanguage: (value: string) => void
   outputDir: string
   setOutputDir: (value: string) => void
+  outputDirError: string
   downloads: DownloadItem[]
   onInspect: () => void
   onChooseFolder: () => void
@@ -1192,12 +1226,20 @@ function PlaylistScreen(props: {
                 </Select>
                 <FieldDescription>{selectedPreset.description}. Saves as {estimatedFileType(props.quality, props.mode)}.</FieldDescription>
               </Field>
-              <Field>
+              <Field data-invalid={Boolean(props.outputDirError)}>
                 <FieldLabel htmlFor="playlist-output-folder">Output folder</FieldLabel>
                 <div className="flex gap-2">
-                  <Input id="playlist-output-folder" value={props.outputDir} onChange={(event) => props.setOutputDir(event.target.value)} placeholder="Choose a folder" />
+                  <Input
+                    id="playlist-output-folder"
+                    value={props.outputDir}
+                    onChange={(event) => props.setOutputDir(event.target.value)}
+                    placeholder="Choose a folder"
+                    aria-invalid={Boolean(props.outputDirError)}
+                    aria-describedby={props.outputDirError ? "playlist-output-folder-error" : undefined}
+                  />
                   <Button variant="outline" size="icon" onClick={props.onChooseFolder} aria-label="Choose folder"><FolderIcon /></Button>
                 </div>
+                {props.outputDirError ? <FieldDescription id="playlist-output-folder-error" className="text-destructive">{props.outputDirError}</FieldDescription> : null}
               </Field>
               <div className="soft-panel grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 rounded-2xl p-4">
                 <div className="min-w-0">
@@ -1260,7 +1302,7 @@ function PlaylistProgressSummary({ downloads }: { downloads: DownloadItem[] }) {
         <Badge variant={complete ? "default" : "secondary"}>{complete ? "Finished" : `${active} active`}</Badge>
       </CardHeader>
       <CardContent>
-        <Progress value={progress} />
+        <Progress value={progress} aria-label="Playlist completion progress" />
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
           <span>{current ? `Now saving: ${current.title}` : complete ? "Playlist queue finished." : "Preparing the next item."}</span>
           <span>{progress}%</span>
@@ -1506,7 +1548,7 @@ function DownloadManager({ downloads, onCancel }: { downloads: DownloadItem[]; o
                     <DownloadCompletedActions item={item} />
                   </div>
                 </div>
-                <Progress className="mt-3" value={item.progress} />
+                <Progress className="mt-3" value={item.progress} aria-label={`${item.title} download progress`} />
               </div>
             ))}
           </div>
@@ -1536,7 +1578,7 @@ function matchesDateFilter(completedAt: string, filter: LibraryDateFilter) {
 function LibraryStatusBadge({ exists }: { exists: boolean | undefined }) {
   if (exists === true) return <Badge variant="default">Available</Badge>
   if (exists === false) return <Badge variant="destructive">Missing</Badge>
-  return <Badge variant="outline">Unchecked</Badge>
+  return <Badge variant="outline">Checking file...</Badge>
 }
 
 function libraryGroupId(group: string) {
@@ -1763,6 +1805,11 @@ function LibraryScreen({
                           <p className="truncate">
                             <span className="font-semibold text-foreground">File:</span> {item.path}
                           </p>
+                          {exists === false ? (
+                            <p className="text-destructive">The saved file was not found at this path. The Library record is still kept so you can copy the source URL or local path.</p>
+                          ) : exists === undefined ? (
+                            <p>Checking whether this file is still available on disk...</p>
+                          ) : null}
                           {item.playlistTitle ? (
                             <p className="truncate">
                               <span className="font-semibold text-foreground">Playlist:</span> {item.playlistTitle}
@@ -1898,6 +1945,7 @@ function SettingsScreen({
   toolsInstalling,
   appVersion,
   updateChecking,
+  updateChecked,
   updateInstalling,
   availableUpdate,
   updateProgress,
@@ -1914,6 +1962,7 @@ function SettingsScreen({
   toolsInstalling: boolean
   appVersion: string
   updateChecking: boolean
+  updateChecked: boolean
   updateInstalling: boolean
   availableUpdate: Update | null
   updateProgress: number
@@ -1925,6 +1974,7 @@ function SettingsScreen({
   onInstallUpdate: () => void
 }) {
   const managedToolsInstalled = Boolean(toolStatus?.ytDlp.managedInstalled && toolStatus?.ffmpeg.managedInstalled)
+  const updateStatusLabel = updateChecking ? "Checking" : availableUpdate ? "Update available" : updateChecked ? "Up to date" : "Not checked yet"
   return (
     <div className="grid gap-6 xl:grid-cols-2">
       <Card>
@@ -2016,10 +2066,11 @@ function SettingsScreen({
                   <FieldLabel>Current version</FieldLabel>
                   <FieldDescription>{appVersion ? `Unmuze ${appVersion}` : "Version unavailable in browser preview."}</FieldDescription>
                 </div>
-                <Badge variant={availableUpdate ? "default" : "outline"}>{availableUpdate ? `Update ${availableUpdate.version}` : "Stable"}</Badge>
+                <Badge variant={availableUpdate ? "default" : updateChecking ? "secondary" : "outline"}>{updateStatusLabel}</Badge>
               </div>
+              {availableUpdate ? <p className="mt-3 text-sm font-medium text-foreground">Version {availableUpdate.version} is ready to install.</p> : null}
               {updateMessage ? <p className="mt-3 text-sm text-muted-foreground">{updateMessage}</p> : null}
-              {updateInstalling ? <Progress className="mt-3" value={updateProgress} /> : null}
+              {updateInstalling ? <Progress className="mt-3" value={updateProgress} aria-label="Update download progress" /> : null}
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={onCheckForUpdate} disabled={updateChecking || updateInstalling}>
@@ -2093,29 +2144,36 @@ function ToolStatusRow({ tool }: { tool: ToolStatus["ytDlp"] }) {
 
 function HelpScreen() {
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="grid gap-6 xl:grid-cols-3">
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">What Unmuze does</CardTitle>
-          <CardDescription>A local desktop tool for permitted public media saves.</CardDescription>
+          <CardTitle className="text-lg">Can save</CardTitle>
+          <CardDescription>Supported local workflows for permitted public media.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 text-sm font-medium leading-6 text-muted-foreground">
           <p>Unmuze can install managed media tools locally, inspect supported public YouTube, SoundCloud, and TikTok URLs, and save audio or video where legally permitted.</p>
           <p>Playlist mode can save selected public items with a configurable concurrency limit, per-item progress, and cancellation.</p>
           <p>Audio and video presets cover common formats, and supported downloads can embed metadata, source URLs, and artwork.</p>
           <p>Advanced options can split chaptered sources into separate files and save available video subtitles as SRT sidecar files.</p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Cannot save</CardTitle>
+          <CardDescription>Protected access stays protected.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 text-sm font-medium leading-6 text-muted-foreground">
+          <p>Unmuze does not bypass DRM, paywalls, login restrictions, encryption, region locks, private links, or other access controls.</p>
+          <p>Spotify tracks, albums, and playlists cannot be downloaded because Spotify does not expose downloadable media files for this kind of app.</p>
           <p>It stores settings and Library records locally. It does not create accounts or send your library to a cloud service.</p>
         </CardContent>
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">What Unmuze does not do</CardTitle>
-          <CardDescription>Protected access stays protected.</CardDescription>
+          <CardTitle className="text-lg">When something fails</CardTitle>
+          <CardDescription>Most fixes start in Settings.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 text-sm font-medium leading-6 text-muted-foreground">
-          <p>It does not bypass DRM, paywalls, login restrictions, encryption, region locks, private links, or other access controls.</p>
-          <p>Spotify tracks, albums, and playlists cannot be downloaded because Spotify does not expose downloadable media files for this kind of app.</p>
-          <Separator />
           <p>Use Settings to install or refresh the app-managed yt-dlp and FFmpeg tools if inspection or conversion reports missing tools.</p>
           <p>Use Check for updates in Settings to install newer signed Unmuze releases without visiting GitHub.</p>
         </CardContent>

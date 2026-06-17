@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import App from "@/App"
 import type { HistoryItem } from "@/lib/media"
 import { inspectMedia, inspectPlaylist, saveSettings, startDownload } from "@/lib/tauri"
+import { check } from "@tauri-apps/plugin-updater"
 
 const { downloadEvents, libraryItems, revealPathMock, startDownloadMock, testSettings } = vi.hoisted(() => ({
   downloadEvents: {
@@ -113,6 +114,8 @@ describe("Library screen", () => {
     downloadEvents.finished = undefined
     vi.mocked(inspectMedia).mockReset()
     vi.mocked(inspectPlaylist).mockReset()
+    vi.mocked(check).mockReset()
+    vi.mocked(check).mockResolvedValue(null)
     vi.mocked(saveSettings).mockClear()
     vi.mocked(startDownload).mockReset()
     testSettings.theme = "system"
@@ -150,8 +153,18 @@ describe("Library screen", () => {
     expect(screen.getByText(/SoundCloud Artist · 4:02/)).toBeInTheDocument()
     expect(await screen.findByText("Available")).toBeInTheDocument()
     expect(await screen.findByText("Missing")).toBeInTheDocument()
+    expect(screen.getByText("The saved file was not found at this path. The Library record is still kept so you can copy the source URL or local path.")).toBeInTheDocument()
     expect(screen.getByText("MP3")).toBeInTheDocument()
     expect(screen.getByText("Balanced")).toBeInTheDocument()
+  })
+
+  it("keeps the mobile download tab label consistent with the desktop label", async () => {
+    await act(async () => {
+      render(<App />)
+    })
+
+    expect(screen.queryByRole("tab", { name: "Save" })).not.toBeInTheDocument()
+    expect(screen.getAllByRole("tab", { name: "Download" }).length).toBeGreaterThan(1)
   })
 
   it("filters by search, platform, and grouping without losing reset recovery", async () => {
@@ -234,6 +247,32 @@ describe("Library screen", () => {
     expect(screen.getByText("Output type: MP4 video. Metadata and artwork are embedded when supported.")).toBeInTheDocument()
   })
 
+  it("shows inline output folder validation before starting a single download", async () => {
+    vi.mocked(inspectMedia).mockResolvedValueOnce({
+      platform: "youTube",
+      downloadable: true,
+      title: "Missing Output Track",
+      creator: "Codex Channel",
+      duration: 60,
+      thumbnail: null,
+      formats: ["audio"],
+      suggestedFileName: "Missing Output Track",
+    })
+    render(<App />)
+
+    fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://www.youtube.com/watch?v=missingoutput" } })
+    fireEvent.click(screen.getByRole("button", { name: "Check" }))
+    expect(await screen.findByText("Missing Output Track")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Save locally" }))
+    expect(screen.getByText("Choose an output folder before saving.")).toBeInTheDocument()
+    expect(screen.getByLabelText("Output folder")).toHaveAttribute("aria-invalid", "true")
+    expect(vi.mocked(startDownload)).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText("Output folder"), { target: { value: "C:\\tmp" } })
+    expect(screen.queryByText("Choose an output folder before saving.")).not.toBeInTheDocument()
+  })
+
   it("queues playlist items into a sanitized playlist folder when enabled", async () => {
     vi.mocked(inspectPlaylist).mockResolvedValueOnce({
       platform: "youTube",
@@ -268,6 +307,51 @@ describe("Library screen", () => {
     )
   })
 
+  it("shows inline output folder validation before queueing playlist downloads", async () => {
+    vi.mocked(inspectPlaylist).mockResolvedValueOnce({
+      platform: "youTube",
+      downloadable: true,
+      title: "Playlist Without Folder",
+      creator: "Codex Channel",
+      entries: [
+        { id: "a", url: "https://www.youtube.com/watch?v=a", title: "First Song", index: 1, duration: 90 },
+      ],
+    })
+    render(<App />)
+
+    fireEvent.click(screen.getAllByRole("tab", { name: "Playlist" })[0])
+    fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://www.youtube.com/playlist?list=missingfolder" } })
+    fireEvent.click(screen.getByRole("button", { name: "Check" }))
+    expect(await screen.findByText("Playlist Without Folder")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Save selected items" }))
+    expect(screen.getByText("Choose an output folder before saving selected playlist items.")).toBeInTheDocument()
+    expect(screen.getByLabelText("Output folder")).toHaveAttribute("aria-invalid", "true")
+    expect(vi.mocked(startDownload)).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText("Output folder"), { target: { value: "C:\\tmp" } })
+    expect(screen.queryByText("Choose an output folder before saving selected playlist items.")).not.toBeInTheDocument()
+  })
+
+  it("uses explicit update status labels before, during, and after checking", async () => {
+    let resolveCheck!: (value: null) => void
+    vi.mocked(check).mockReturnValueOnce(new Promise((resolve) => {
+      resolveCheck = resolve
+    }))
+    render(<App />)
+
+    fireEvent.click(screen.getAllByRole("tab", { name: "Settings" })[0])
+    expect(await screen.findByText("Not checked yet")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Check for updates" }))
+    expect(screen.getByText("Checking")).toBeInTheDocument()
+
+    await act(async () => {
+      resolveCheck(null)
+    })
+    expect(await screen.findByText("Up to date")).toBeInTheDocument()
+  })
+
   it("shows completed download actions after the finish event", async () => {
     vi.mocked(inspectMedia).mockResolvedValueOnce({
       platform: "youTube",
@@ -289,6 +373,7 @@ describe("Library screen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save locally" }))
 
     await waitFor(() => expect(vi.mocked(startDownload)).toHaveBeenCalled())
+    expect(screen.getByRole("progressbar", { name: "Completed Action Song download progress" })).toBeInTheDocument()
     const request = vi.mocked(startDownload).mock.calls[0][0] as { id: string }
     await act(async () => {
       downloadEvents.finished?.({

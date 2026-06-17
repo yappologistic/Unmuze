@@ -35,6 +35,18 @@ cargo test
 
 `npm run check:release` runs linting, frontend tests, the production frontend build, version alignment, and updater configuration checks together. Run `cargo test` separately from `src-tauri` before release work.
 
+## Platform Smoke Checks
+
+The `Platform smoke` GitHub Actions workflow runs the core readiness checks on Linux, Windows, and macOS Apple Silicon for relevant pull requests. It also runs manually, nightly, and after relevant `main` branch changes. macOS Intel coverage runs on the manual, nightly, and `main` branch paths to catch Intel-specific issues without slowing every pull request.
+
+Use the manual workflow before release candidates or after platform-specific fixes. It verifies:
+
+- frontend dependency installation;
+- linting and frontend tests;
+- production frontend build;
+- version and updater configuration checks;
+- Rust tests from `src-tauri`.
+
 ## Build Installers
 
 ```bash
