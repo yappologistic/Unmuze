@@ -32,6 +32,9 @@ enum Platform {
     YouTube,
     SoundCloud,
     TikTok,
+    Instagram,
+    Twitter,
+    Pinterest,
     Spotify,
     Unsupported,
 }
@@ -102,6 +105,12 @@ struct PlatformDefaults {
     sound_cloud: Option<PlatformDefault>,
     #[serde(default)]
     tik_tok: Option<PlatformDefault>,
+    #[serde(default)]
+    instagram: Option<PlatformDefault>,
+    #[serde(default)]
+    twitter: Option<PlatformDefault>,
+    #[serde(default)]
+    pinterest: Option<PlatformDefault>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -421,24 +430,26 @@ fn ffmpeg_location_arg(app: &AppHandle) -> Option<String> {
 }
 
 fn command_version(command: &str) -> Option<String> {
-    ["--version", "-version"].into_iter().find_map(|version_arg| {
-        tool_command(command)
-            .arg(version_arg)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .map(|output| {
-                String::from_utf8_lossy(&output.stdout)
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .to_string()
-            })
-            .filter(|line| !line.is_empty())
-    })
+    ["--version", "-version"]
+        .into_iter()
+        .find_map(|version_arg| {
+            tool_command(command)
+                .arg(version_arg)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .output()
+                .ok()
+                .filter(|output| output.status.success())
+                .map(|output| {
+                    String::from_utf8_lossy(&output.stdout)
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .to_string()
+                })
+                .filter(|line| !line.is_empty())
+        })
 }
 
 fn tool_detail(app: &AppHandle, tool: &str, label: &str) -> AppResult<ToolDetail> {
@@ -589,11 +600,38 @@ fn detect_platform(url: &str) -> Platform {
         Platform::SoundCloud
     } else if host == "tiktok.com" || host.ends_with(".tiktok.com") {
         Platform::TikTok
+    } else if is_instagram_host(&host) {
+        Platform::Instagram
+    } else if is_twitter_host(&host) {
+        Platform::Twitter
+    } else if is_pinterest_host(&host) {
+        Platform::Pinterest
     } else if host == "spotify.com" || host.ends_with(".spotify.com") {
         Platform::Spotify
     } else {
         Platform::Unsupported
     }
+}
+
+fn is_instagram_host(host: &str) -> bool {
+    host == "instagram.com"
+}
+
+fn is_twitter_host(host: &str) -> bool {
+    matches!(host, "twitter.com" | "mobile.twitter.com" | "x.com")
+}
+
+fn is_pinterest_host(host: &str) -> bool {
+    host == "pinterest.com"
+}
+
+fn url_path_segments(parsed: &Url) -> Vec<String> {
+    parsed
+        .path()
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .map(|segment| segment.to_ascii_lowercase())
+        .collect()
 }
 
 fn is_tiktok_video_url(url: &str) -> bool {
@@ -615,10 +653,172 @@ fn is_tiktok_video_url(url: &str) -> bool {
     path.contains("/video/") || path.starts_with("v/") || path.starts_with("t/")
 }
 
+fn is_instagram_single_item_url(url: &str) -> bool {
+    let Ok(parsed) = Url::parse(url.trim()) else {
+        return false;
+    };
+    let raw_host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
+    let host = raw_host.strip_prefix("www.").unwrap_or(&raw_host);
+    if !is_instagram_host(host) {
+        return false;
+    }
+    let segments = url_path_segments(&parsed);
+    matches!(
+        segments.as_slice(),
+        [kind, shortcode]
+            if matches!(kind.as_str(), "p" | "reel" | "reels" | "tv") && !shortcode.is_empty()
+    )
+}
+
+fn is_twitter_status_url(url: &str) -> bool {
+    let Ok(parsed) = Url::parse(url.trim()) else {
+        return false;
+    };
+    let raw_host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
+    let host = raw_host.strip_prefix("www.").unwrap_or(&raw_host);
+    if !is_twitter_host(host) {
+        return false;
+    }
+    let segments = url_path_segments(&parsed);
+    fn is_id(value: Option<&String>) -> bool {
+        value.is_some_and(|segment| segment.chars().all(|c| c.is_ascii_digit()))
+    }
+    fn safe_suffix(suffix: &[String]) -> bool {
+        suffix.is_empty()
+            || matches!(
+                suffix,
+                [kind, index]
+                    if matches!(kind.as_str(), "photo" | "video")
+                        && index.chars().all(|c| c.is_ascii_digit())
+            )
+    }
+    if matches!(segments.first().map(String::as_str), Some("i"))
+        && matches!(segments.get(1).map(String::as_str), Some("web"))
+        && matches!(segments.get(2).map(String::as_str), Some("status"))
+        && is_id(segments.get(3))
+    {
+        return safe_suffix(&segments[4..]);
+    }
+    if matches!(segments.first().map(String::as_str), Some("i"))
+        && matches!(segments.get(1).map(String::as_str), Some("status"))
+        && is_id(segments.get(2))
+    {
+        return safe_suffix(&segments[3..]);
+    }
+    if matches!(
+        segments.get(1).map(String::as_str),
+        Some("status" | "statuses")
+    ) && !segments.first().unwrap_or(&String::new()).is_empty()
+        && is_id(segments.get(2))
+    {
+        return safe_suffix(&segments[3..]);
+    }
+    false
+}
+
+fn is_pinterest_pin_url(url: &str) -> bool {
+    let Ok(parsed) = Url::parse(url.trim()) else {
+        return false;
+    };
+    let raw_host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
+    let host = raw_host.strip_prefix("www.").unwrap_or(&raw_host);
+    if !is_pinterest_host(host) {
+        return false;
+    }
+    let segments = url_path_segments(&parsed);
+    matches!(segments.as_slice(), [kind, id] if kind == "pin" && !id.is_empty())
+}
+
 fn is_download_platform(platform: &Platform) -> bool {
     matches!(
         platform,
-        Platform::YouTube | Platform::SoundCloud | Platform::TikTok
+        Platform::YouTube
+            | Platform::SoundCloud
+            | Platform::TikTok
+            | Platform::Instagram
+            | Platform::Twitter
+            | Platform::Pinterest
+    )
+}
+
+fn single_item_limitation(platform: &Platform, url: &str) -> Option<&'static str> {
+    match platform {
+        Platform::TikTok if !is_tiktok_video_url(url) => {
+            Some("Paste an individual public TikTok video URL, not a profile or playlist.")
+        }
+        Platform::Instagram if !is_instagram_single_item_url(url) => Some(
+            "Paste an individual public Instagram post, reel, or TV URL, not a profile, story, hashtag, or search.",
+        ),
+        Platform::Twitter if !is_twitter_status_url(url) => Some(
+            "Paste an individual public Twitter/X post URL, not a profile, search, list, or timeline.",
+        ),
+        Platform::Pinterest if !is_pinterest_pin_url(url) => Some(
+            "Paste an individual public Pinterest video Pin URL under /pin/, not a board, profile, search, or pin.it short link.",
+        ),
+        _ => None,
+    }
+}
+
+fn validate_download_url_shape(platform: &Platform, url: &str) -> AppResult<()> {
+    if let Some(message) = single_item_limitation(platform, url) {
+        return Err(user_error(
+            message,
+            "Use a supported individual public media URL.",
+        ));
+    }
+    Ok(())
+}
+
+fn playlist_limitation_for_platform(platform: &Platform) -> Option<&'static str> {
+    match platform {
+        Platform::TikTok => Some(
+            "TikTok playlist and profile downloads are not supported. Use Download mode with an individual public TikTok video URL.",
+        ),
+        Platform::Instagram => {
+            Some("Instagram is supported in Download mode for individual public posts and reels.")
+        }
+        Platform::Twitter => {
+            Some("Twitter/X is supported in Download mode for individual public posts.")
+        }
+        Platform::Pinterest => {
+            Some("Pinterest is supported in Download mode for individual public video pins.")
+        }
+        _ => None,
+    }
+}
+
+fn ytdlp_error_message(stderr: &str) -> (&'static str, &'static str) {
+    let normalized = stderr.to_ascii_lowercase();
+    if normalized.contains("login")
+        || normalized.contains("private")
+        || normalized.contains("forbidden")
+        || normalized.contains("http error 403")
+        || normalized.contains("cookies")
+        || normalized.contains("sign in")
+        || normalized.contains("sign-in")
+        || normalized.contains("age-restricted")
+        || normalized.contains("429")
+        || normalized.contains("rate limit")
+        || normalized.contains("too many requests")
+    {
+        return (
+            "This URL requires login, protected access, or has been rate-limited. Unmuze will not bypass platform access limits.",
+            "Use a public URL that does not require protected access, or try again later if the platform is rate-limiting anonymous access.",
+        );
+    }
+    if normalized.contains("no video formats")
+        || normalized.contains("no formats")
+        || normalized.contains("requested format is not available")
+        || normalized.contains("no downloadable")
+    {
+        return (
+            "No downloadable video was found at this URL.",
+            "Check that the URL points to a public video/media item and not an image-only post.",
+        );
+    }
+    (
+        "yt-dlp could not read this URL. Update managed tools and try again.",
+        "Open Settings to refresh managed media tools, then retry the URL if it is public and permitted.",
     )
 }
 
@@ -729,7 +929,10 @@ fn default_settings() -> Settings {
         default_output_folder: default_output_folder(),
         default_format: default_format(),
         default_quality: default_quality(),
-        platform_defaults: Some(default_platform_defaults(&default_format(), &default_quality())),
+        platform_defaults: Some(default_platform_defaults(
+            &default_format(),
+            &default_quality(),
+        )),
         playlist_concurrency: default_playlist_concurrency(),
         playlist_folder_mode: false,
         keep_history: default_keep_history(),
@@ -840,6 +1043,9 @@ fn default_platform_defaults(format: &str, quality: &str) -> PlatformDefaults {
         you_tube: Some(default_platform_default(format, quality, false)),
         sound_cloud: Some(default_platform_default(format, quality, true)),
         tik_tok: Some(default_platform_default(format, quality, false)),
+        instagram: Some(default_platform_default("video", "best", false)),
+        twitter: Some(default_platform_default("video", "best", false)),
+        pinterest: Some(default_platform_default("video", "best", false)),
     }
 }
 
@@ -852,6 +1058,9 @@ fn normalize_platform_defaults(
         you_tube: None,
         sound_cloud: None,
         tik_tok: None,
+        instagram: None,
+        twitter: None,
+        pinterest: None,
     });
     PlatformDefaults {
         you_tube: Some(normalize_platform_default(
@@ -872,13 +1081,32 @@ fn normalize_platform_defaults(
             fallback_quality,
             false,
         )),
+        instagram: Some(normalize_platform_default(
+            value.instagram,
+            "video",
+            "best",
+            false,
+        )),
+        twitter: Some(normalize_platform_default(
+            value.twitter,
+            "video",
+            "best",
+            false,
+        )),
+        pinterest: Some(normalize_platform_default(
+            value.pinterest,
+            "video",
+            "best",
+            false,
+        )),
     }
 }
 
 fn normalize_settings(mut settings: Settings) -> Settings {
     settings.playlist_concurrency = settings.playlist_concurrency.clamp(1, 3);
     settings.default_format = normalize_mode(&settings.default_format, false);
-    settings.default_quality = normalize_quality(&settings.default_quality, &settings.default_format);
+    settings.default_quality =
+        normalize_quality(&settings.default_quality, &settings.default_format);
     settings.platform_defaults = Some(normalize_platform_defaults(
         settings.platform_defaults,
         &settings.default_format,
@@ -1014,22 +1242,29 @@ fn inspect_media(app: AppHandle, request: InspectRequest) -> AppResult<Inspectio
             thumbnail: None,
             formats: vec![],
             format_details: vec![],
-            limitation: Some("This app currently supports permitted public YouTube, SoundCloud, and TikTok URLs only.".to_string()),
+            limitation: Some("This app currently supports permitted public YouTube, SoundCloud, TikTok, Instagram, Twitter/X, and Pinterest URLs only.".to_string()),
             suggested_file_name: None,
         }),
-        Platform::TikTok if !is_tiktok_video_url(&request.url) => Ok(Inspection {
-            platform,
-            downloadable: false,
-            title: None,
-            creator: None,
-            duration: None,
-            thumbnail: None,
-            formats: vec![],
-            format_details: vec![],
-            limitation: Some("Paste an individual public TikTok video URL, not a profile or playlist.".to_string()),
-            suggested_file_name: None,
-        }),
-        Platform::YouTube | Platform::SoundCloud | Platform::TikTok => {
+        Platform::YouTube
+        | Platform::SoundCloud
+        | Platform::TikTok
+        | Platform::Instagram
+        | Platform::Twitter
+        | Platform::Pinterest => {
+            if let Some(message) = single_item_limitation(&platform, &request.url) {
+                return Ok(Inspection {
+                    platform,
+                    downloadable: false,
+                    title: None,
+                    creator: None,
+                    duration: None,
+                    thumbnail: None,
+                    formats: vec![],
+                    format_details: vec![],
+                    limitation: Some(message.to_string()),
+                    suggested_file_name: None,
+                });
+            }
             inspect_with_ytdlp(&app, &request.url, platform)
         }
     }
@@ -1056,14 +1291,16 @@ fn inspect_playlist(app: AppHandle, request: InspectRequest) -> AppResult<Playli
             entries: vec![],
             limitation: Some("Playlist mode currently supports permitted public YouTube and SoundCloud playlists only.".to_string()),
         }),
-        Platform::TikTok => Ok(PlaylistInspection {
-            platform,
-            downloadable: false,
-            title: None,
-            creator: None,
-            entries: vec![],
-            limitation: Some("TikTok playlist and profile downloads are not supported. Use Download mode with an individual public TikTok video URL.".to_string()),
-        }),
+        Platform::TikTok | Platform::Instagram | Platform::Twitter | Platform::Pinterest => {
+            Ok(PlaylistInspection {
+                limitation: playlist_limitation_for_platform(&platform).map(str::to_string),
+                platform,
+                downloadable: false,
+                title: None,
+                creator: None,
+                entries: vec![],
+            })
+        }
         Platform::YouTube | Platform::SoundCloud => inspect_playlist_with_ytdlp(&app, &request.url, platform),
     }
 }
@@ -1076,6 +1313,7 @@ fn inspect_playlist_with_ytdlp(
     let ytdlp = active_tool_path(app, "yt-dlp");
     let mut command = tool_command(&ytdlp);
     command.args([
+        "--ignore-config",
         "--dump-single-json",
         "--flat-playlist",
         "--skip-download",
@@ -1096,19 +1334,9 @@ fn inspect_playlist_with_ytdlp(
             )
         })?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
-        let message = if stderr.contains("login")
-            || stderr.contains("private")
-            || stderr.contains("forbidden")
-        {
-            "This playlist requires login or protected access, so it cannot be downloaded by this app."
-        } else {
-            "The playlist could not be inspected."
-        };
-        return Err(user_error(
-            message,
-            "Check that the playlist is public, permitted for download, and technically available.",
-        ));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let (message, suggestion) = ytdlp_error_message(&stderr);
+        return Err(user_error(message, suggestion));
     }
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|_| {
         user_error(
@@ -1321,6 +1549,7 @@ fn inspect_with_ytdlp(app: &AppHandle, url: &str, platform: Platform) -> AppResu
     let ytdlp = active_tool_path(app, "yt-dlp");
     let mut command = tool_command(&ytdlp);
     command.args([
+        "--ignore-config",
         "--dump-single-json",
         "--skip-download",
         "--no-warnings",
@@ -1341,19 +1570,9 @@ fn inspect_with_ytdlp(app: &AppHandle, url: &str, platform: Platform) -> AppResu
             )
         })?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
-        let message = if stderr.contains("login")
-            || stderr.contains("private")
-            || stderr.contains("forbidden")
-        {
-            "This URL requires login or protected access, so it cannot be downloaded by this app."
-        } else {
-            "The media could not be inspected."
-        };
-        return Err(user_error(
-            message,
-            "Check that the URL is public, permitted for download, and technically available.",
-        ));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let (message, suggestion) = ytdlp_error_message(&stderr);
+        return Err(user_error(message, suggestion));
     }
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|_| {
         user_error(
@@ -1379,12 +1598,32 @@ fn inspect_with_ytdlp(app: &AppHandle, url: &str, platform: Platform) -> AppResu
         .as_ref()
         .map(|value| sanitize_filename(value))
         .or_else(|| Some("download".to_string()));
+    let format_details = available_format_details(&json);
+    if matches!(
+        platform,
+        Platform::Instagram | Platform::Twitter | Platform::Pinterest
+    ) && !format_details
+        .iter()
+        .any(|detail| detail.kind == "video" || detail.kind == "muxed")
+    {
+        return Ok(Inspection {
+            platform,
+            downloadable: false,
+            title,
+            creator,
+            duration,
+            thumbnail,
+            formats: vec![],
+            format_details,
+            limitation: Some("No downloadable video was found at this URL.".to_string()),
+            suggested_file_name: suggested,
+        });
+    }
     let formats = if matches!(platform, Platform::SoundCloud) {
         vec!["audio".to_string()]
     } else {
         vec!["audio".to_string(), "video".to_string()]
     };
-    let format_details = available_format_details(&json);
     Ok(Inspection {
         platform,
         downloadable: true,
@@ -1554,15 +1793,10 @@ fn start_download(
     if !is_download_platform(&platform) {
         return Err(user_error(
             "This URL cannot be downloaded by this app.",
-            "Use a permitted public YouTube, SoundCloud, or TikTok URL.",
+            "Use a permitted public YouTube, SoundCloud, TikTok, Instagram, Twitter/X, or Pinterest URL.",
         ));
     }
-    if matches!(platform, Platform::TikTok) && !is_tiktok_video_url(&request.url) {
-        return Err(user_error(
-            "This TikTok URL cannot be downloaded by this app.",
-            "Use an individual public TikTok video URL, not a profile or playlist.",
-        ));
-    }
+    validate_download_url_shape(&platform, &request.url)?;
     if matches!(platform, Platform::SoundCloud) && request.mode == "video" {
         return Err(user_error(
             "SoundCloud URLs can only be saved as audio.",
@@ -1582,6 +1816,7 @@ fn start_download(
     output_path.set_extension(expected_extension);
     let template = output_path.to_string_lossy().to_string();
     let mut args = vec![
+        "--ignore-config".to_string(),
         "--newline".to_string(),
         "--no-playlist".to_string(),
         "-o".to_string(),
@@ -1666,9 +1901,12 @@ fn start_download(
     let wait_app = app.clone();
     let registry_id = request.id.clone();
     thread::spawn(move || {
+        let mut stderr_text = String::new();
         if let Some(err) = stderr {
             let reader = BufReader::new(err);
             for line in reader.lines().map_while(Result::ok) {
+                stderr_text.push_str(&line);
+                stderr_text.push('\n');
                 let _ = wait_app.emit(
                     "download-progress",
                     serde_json::json!({ "id": id, "line": line }),
@@ -1691,12 +1929,18 @@ fn start_download(
         } else {
             "failed"
         };
+        let message = if final_status == "failed" {
+            Some(ytdlp_error_message(&stderr_text).0)
+        } else {
+            None
+        };
         let _ = wait_app.emit(
             "download-finished",
             serde_json::json!({
                 "id": id,
                 "status": final_status,
-                "path": template
+                "path": template,
+                "message": message
             }),
         );
         if let Some(state) = wait_app.try_state::<DownloadRegistry>() {
@@ -1787,10 +2031,12 @@ mod tests {
     use super::{
         append_audio_preset_args, append_chapter_args, append_metadata_args, append_subtitle_args,
         append_video_preset_args, audio_extension, detect_platform, is_download_platform,
-        is_tiktok_video_url, normalize_settings, parse_history_data, parse_settings_data,
-        safe_output_path, sanitize_format_id, sanitize_subtitle_language, selected_video_selector,
-        tool_asset, validate_public_url, video_selector, Platform, Settings, FFMPEG_VERSION,
-        YT_DLP_VERSION,
+        is_instagram_single_item_url, is_pinterest_pin_url, is_tiktok_video_url,
+        is_twitter_status_url, normalize_settings, parse_history_data, parse_settings_data,
+        playlist_limitation_for_platform, safe_output_path, sanitize_format_id,
+        sanitize_subtitle_language, selected_video_selector, tool_asset,
+        validate_download_url_shape, validate_public_url, video_selector, ytdlp_error_message,
+        Platform, Settings, FFMPEG_VERSION, YT_DLP_VERSION,
     };
     use std::{fs, path::Path};
 
@@ -1848,6 +2094,92 @@ mod tests {
     }
 
     #[test]
+    fn detects_new_social_hosts_for_ytdlp_path() {
+        assert_eq!(
+            detect_platform("https://www.instagram.com/reel/Codex123/"),
+            Platform::Instagram
+        );
+        assert_eq!(
+            detect_platform("https://x.com/codex/status/1234567890"),
+            Platform::Twitter
+        );
+        assert_eq!(
+            detect_platform("https://mobile.twitter.com/codex/statuses/1234567890"),
+            Platform::Twitter
+        );
+        assert_eq!(
+            detect_platform("https://www.pinterest.com/pin/1234567890/"),
+            Platform::Pinterest
+        );
+        assert_eq!(
+            detect_platform("https://ca.pinterest.com/pin/1234567890/"),
+            Platform::Unsupported
+        );
+        assert_eq!(
+            detect_platform("https://api.x.com/codex/status/1234567890"),
+            Platform::Unsupported
+        );
+        assert_eq!(
+            detect_platform("https://pin.it/abc123"),
+            Platform::Unsupported
+        );
+    }
+
+    #[test]
+    fn scopes_instagram_twitter_and_pinterest_to_single_items() {
+        assert!(is_instagram_single_item_url(
+            "https://www.instagram.com/p/Codex123/"
+        ));
+        assert!(is_instagram_single_item_url(
+            "https://www.instagram.com/reel/Codex123/"
+        ));
+        assert!(is_instagram_single_item_url(
+            "https://www.instagram.com/reels/Codex123/"
+        ));
+        assert!(is_instagram_single_item_url(
+            "https://www.instagram.com/tv/Codex123/"
+        ));
+        assert!(!is_instagram_single_item_url(
+            "https://www.instagram.com/codex/"
+        ));
+        assert!(!is_instagram_single_item_url(
+            "https://help.instagram.com/p/Codex123/"
+        ));
+        assert!(!is_instagram_single_item_url(
+            "https://www.instagram.com/stories/codex/1234567890/"
+        ));
+
+        assert!(is_twitter_status_url(
+            "https://x.com/codex/status/1234567890/video/1"
+        ));
+        assert!(is_twitter_status_url(
+            "https://twitter.com/codex/statuses/1234567890/photo/1"
+        ));
+        assert!(is_twitter_status_url(
+            "https://mobile.twitter.com/i/web/status/1234567890"
+        ));
+        assert!(!is_twitter_status_url("https://x.com/codex"));
+        assert!(!is_twitter_status_url(
+            "https://api.x.com/codex/status/1234567890"
+        ));
+        assert!(!is_twitter_status_url("https://twitter.com/search?q=codex"));
+
+        assert!(is_pinterest_pin_url(
+            "https://www.pinterest.com/pin/1234567890/"
+        ));
+        assert!(!is_pinterest_pin_url(
+            "https://ca.pinterest.com/pin/1234567890/"
+        ));
+        assert!(!is_pinterest_pin_url(
+            "https://www.pinterest.com/example/pin/1234567890/"
+        ));
+        assert!(!is_pinterest_pin_url(
+            "https://www.pinterest.com/codex/board-name/"
+        ));
+        assert!(!is_pinterest_pin_url("https://pin.it/abc123"));
+    }
+
+    #[test]
     fn handles_url_parser_edge_cases() {
         assert_eq!(
             detect_platform("https://user:pass@www.youtube.com:443/watch?v=abc"),
@@ -1863,12 +2195,90 @@ mod tests {
     }
 
     #[test]
-    fn allows_tiktok_in_download_platform_allowlist() {
+    fn allows_supported_platforms_in_download_platform_allowlist() {
         assert!(is_download_platform(&Platform::YouTube));
         assert!(is_download_platform(&Platform::SoundCloud));
         assert!(is_download_platform(&Platform::TikTok));
+        assert!(is_download_platform(&Platform::Instagram));
+        assert!(is_download_platform(&Platform::Twitter));
+        assert!(is_download_platform(&Platform::Pinterest));
         assert!(!is_download_platform(&Platform::Spotify));
         assert!(!is_download_platform(&Platform::Unsupported));
+    }
+
+    #[test]
+    fn rejects_invalid_direct_download_shapes_before_ytdlp() {
+        assert!(validate_download_url_shape(
+            &Platform::Instagram,
+            "https://www.instagram.com/reel/Codex123/"
+        )
+        .is_ok());
+        assert!(validate_download_url_shape(
+            &Platform::Instagram,
+            "https://www.instagram.com/codex/"
+        )
+        .is_err());
+        assert!(validate_download_url_shape(
+            &Platform::Twitter,
+            "https://x.com/codex/status/1234567890"
+        )
+        .is_ok());
+        assert!(
+            validate_download_url_shape(&Platform::Twitter, "https://x.com/codex/lists/123")
+                .is_err()
+        );
+        assert!(validate_download_url_shape(
+            &Platform::Pinterest,
+            "https://www.pinterest.com/pin/1234567890/"
+        )
+        .is_ok());
+        assert!(validate_download_url_shape(
+            &Platform::Pinterest,
+            "https://www.pinterest.com/example/pin/1234567890/"
+        )
+        .is_err());
+        assert!(validate_download_url_shape(
+            &Platform::Pinterest,
+            "https://www.pinterest.com/codex/board-name/"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn reports_playlist_limitations_for_single_item_social_platforms() {
+        assert_eq!(
+            playlist_limitation_for_platform(&Platform::Instagram),
+            Some("Instagram is supported in Download mode for individual public posts and reels.")
+        );
+        assert_eq!(
+            playlist_limitation_for_platform(&Platform::Twitter),
+            Some("Twitter/X is supported in Download mode for individual public posts.")
+        );
+        assert_eq!(
+            playlist_limitation_for_platform(&Platform::Pinterest),
+            Some("Pinterest is supported in Download mode for individual public video pins.")
+        );
+        assert_eq!(playlist_limitation_for_platform(&Platform::YouTube), None);
+    }
+
+    #[test]
+    fn maps_ytdlp_errors_to_user_facing_buckets() {
+        assert_eq!(
+            ytdlp_error_message("ERROR: HTTP Error 429: Too Many Requests").0,
+            "This URL requires login, protected access, or has been rate-limited. Unmuze will not bypass platform access limits."
+        );
+        assert_eq!(
+            ytdlp_error_message("ERROR: Sign in to confirm you are not a bot").0,
+            "This URL requires login, protected access, or has been rate-limited. Unmuze will not bypass platform access limits."
+        );
+        assert_eq!(
+            ytdlp_error_message("ERROR: no video formats found").0,
+            "No downloadable video was found at this URL."
+        );
+        assert_eq!(
+            ytdlp_error_message("ERROR: Unsupported URL").0,
+            "yt-dlp could not read this URL. Update managed tools and try again."
+        );
     }
 
     #[test]
@@ -1973,6 +2383,9 @@ mod tests {
         assert_eq!(platform_defaults.you_tube.unwrap().mode, "video");
         assert_eq!(platform_defaults.sound_cloud.unwrap().mode, "audio");
         assert_eq!(platform_defaults.tik_tok.unwrap().quality, "video-mp4-1080");
+        assert_eq!(platform_defaults.instagram.unwrap().quality, "best");
+        assert_eq!(platform_defaults.twitter.unwrap().quality, "best");
+        assert_eq!(platform_defaults.pinterest.unwrap().quality, "best");
     }
 
     #[test]
@@ -1989,11 +2402,15 @@ mod tests {
             "playlistConcurrency": 2,
             "keepHistory": true
         }"#;
-        let normalized = normalize_settings(serde_json::from_str(settings).expect("partial defaults"));
+        let normalized =
+            normalize_settings(serde_json::from_str(settings).expect("partial defaults"));
         let platform_defaults = normalized.platform_defaults.expect("platform defaults");
         let you_tube = platform_defaults.you_tube.expect("youtube defaults");
         let sound_cloud = platform_defaults.sound_cloud.expect("soundcloud defaults");
         let tik_tok = platform_defaults.tik_tok.expect("tiktok defaults");
+        let instagram = platform_defaults.instagram.expect("instagram defaults");
+        let twitter = platform_defaults.twitter.expect("twitter defaults");
+        let pinterest = platform_defaults.pinterest.expect("pinterest defaults");
 
         assert_eq!(you_tube.mode, "video");
         assert_eq!(you_tube.quality, "best");
@@ -2001,6 +2418,12 @@ mod tests {
         assert_eq!(sound_cloud.quality, "audio-opus");
         assert_eq!(tik_tok.mode, "video");
         assert_eq!(tik_tok.quality, "video-mp4-best");
+        assert_eq!(instagram.mode, "video");
+        assert_eq!(instagram.quality, "best");
+        assert_eq!(twitter.mode, "video");
+        assert_eq!(twitter.quality, "best");
+        assert_eq!(pinterest.mode, "video");
+        assert_eq!(pinterest.quality, "best");
     }
 
     #[test]
@@ -2040,7 +2463,10 @@ mod tests {
                 .to_string_lossy(),
             "_My_Playlist_"
         );
-        assert_eq!(path.file_name().unwrap().to_string_lossy(), "_bad_item_.mp3");
+        assert_eq!(
+            path.file_name().unwrap().to_string_lossy(),
+            "_bad_item_.mp3"
+        );
         assert!(path.parent().unwrap().is_dir());
 
         let _ = fs::remove_dir_all(&base);

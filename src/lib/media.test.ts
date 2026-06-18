@@ -13,6 +13,9 @@ import {
   formatDetailsForMode,
   isPresetAllowedForMode,
   isLikelyPlaylistUrl,
+  isLikelyInstagramSingleItemUrl,
+  isLikelyPinterestPinUrl,
+  isLikelyTwitterStatusUrl,
   isLikelyTikTokVideoUrl,
   normalizePlatformDefault,
   normalizePlatformDefaults,
@@ -34,7 +37,15 @@ describe("media URL handling", () => {
     expect(detectPlatform("https://www.tiktok.com/@artist/video/1234567890")).toBe("tikTok")
     expect(detectPlatform("https://m.tiktok.com/v/1234567890.html")).toBe("tikTok")
     expect(detectPlatform("https://vm.tiktok.com/ZMabc123/")).toBe("tikTok")
+    expect(detectPlatform("https://www.instagram.com/reel/Codex123/")).toBe("instagram")
+    expect(detectPlatform("https://www.instagram.com/p/Codex123/")).toBe("instagram")
+    expect(detectPlatform("https://x.com/codex/status/1234567890")).toBe("twitter")
+    expect(detectPlatform("https://mobile.twitter.com/codex/statuses/1234567890")).toBe("twitter")
+    expect(detectPlatform("https://www.pinterest.com/pin/1234567890/")).toBe("pinterest")
+    expect(detectPlatform("https://ca.pinterest.com/pin/1234567890/")).toBe("unsupported")
+    expect(detectPlatform("https://api.x.com/codex/status/1234567890")).toBe("unsupported")
     expect(detectPlatform("https://open.spotify.com/track/abc")).toBe("spotify")
+    expect(detectPlatform("https://pin.it/abc123")).toBe("unsupported")
     expect(detectPlatform("https://example.com/file.mp4")).toBe("unsupported")
   })
 
@@ -43,7 +54,25 @@ describe("media URL handling", () => {
     expect(validateMediaUrl("https://on.soundcloud.com/abc123").valid).toBe(true)
     expect(validateMediaUrl("https://www.tiktok.com/@artist/video/1234567890").valid).toBe(true)
     expect(validateMediaUrl("https://vm.tiktok.com/ZMabc123/").valid).toBe(true)
+    expect(validateMediaUrl("https://www.instagram.com/p/Codex123/").valid).toBe(true)
+    expect(validateMediaUrl("https://www.instagram.com/reel/Codex123/").valid).toBe(true)
+    expect(validateMediaUrl("https://www.instagram.com/reels/Codex123/").valid).toBe(true)
+    expect(validateMediaUrl("https://www.instagram.com/tv/Codex123/").valid).toBe(true)
+    expect(validateMediaUrl("https://x.com/codex/status/1234567890/video/1").valid).toBe(true)
+    expect(validateMediaUrl("https://twitter.com/codex/statuses/1234567890/photo/1").valid).toBe(true)
+    expect(validateMediaUrl("https://mobile.twitter.com/i/web/status/1234567890").valid).toBe(true)
+    expect(validateMediaUrl("https://www.pinterest.com/pin/1234567890/").valid).toBe(true)
     expect(validateMediaUrl("https://www.tiktok.com/@artist").valid).toBe(false)
+    expect(validateMediaUrl("https://www.instagram.com/codex/").valid).toBe(false)
+    expect(validateMediaUrl("https://help.instagram.com/p/Codex123/").valid).toBe(false)
+    expect(validateMediaUrl("https://www.instagram.com/stories/codex/1234567890/").valid).toBe(false)
+    expect(validateMediaUrl("https://x.com/codex").valid).toBe(false)
+    expect(validateMediaUrl("https://api.x.com/codex/status/1234567890").valid).toBe(false)
+    expect(validateMediaUrl("https://twitter.com/search?q=codex").valid).toBe(false)
+    expect(validateMediaUrl("https://www.pinterest.com/codex/board-name/").valid).toBe(false)
+    expect(validateMediaUrl("https://www.pinterest.com/example/pin/1234567890/").valid).toBe(false)
+    expect(validateMediaUrl("https://www.pinterest.com/search/pins/?q=codex").valid).toBe(false)
+    expect(validateMediaUrl("https://pin.it/abc123").valid).toBe(false)
     expect(validateMediaUrl("ftp://youtu.be/abc").valid).toBe(false)
     expect(validateMediaUrl("not a url").valid).toBe(false)
     expect(validateMediaUrl("https://example.com/video").valid).toBe(false)
@@ -55,6 +84,9 @@ describe("media URL handling", () => {
     expect(isLikelyPlaylistUrl("https://soundcloud.com/artist/sets/mix")).toBe(true)
     expect(isLikelyPlaylistUrl("https://youtu.be/abc")).toBe(false)
     expect(isLikelyPlaylistUrl("https://www.tiktok.com/@artist/video/1234567890")).toBe(false)
+    expect(isLikelyPlaylistUrl("https://www.instagram.com/reel/Codex123/")).toBe(false)
+    expect(isLikelyPlaylistUrl("https://x.com/codex/status/1234567890")).toBe(false)
+    expect(isLikelyPlaylistUrl("https://www.pinterest.com/pin/1234567890/")).toBe(false)
   })
 
   it("detects individual TikTok video URL shapes", () => {
@@ -64,10 +96,32 @@ describe("media URL handling", () => {
     expect(isLikelyTikTokVideoUrl("https://www.tiktok.com/@artist")).toBe(false)
   })
 
+  it("detects new public single-item URL shapes", () => {
+    expect(isLikelyInstagramSingleItemUrl("https://www.instagram.com/p/Codex123/")).toBe(true)
+    expect(isLikelyInstagramSingleItemUrl("https://www.instagram.com/reel/Codex123/")).toBe(true)
+    expect(isLikelyInstagramSingleItemUrl("https://www.instagram.com/reels/Codex123/")).toBe(true)
+    expect(isLikelyInstagramSingleItemUrl("https://www.instagram.com/tv/Codex123/")).toBe(true)
+    expect(isLikelyInstagramSingleItemUrl("https://www.instagram.com/codex/")).toBe(false)
+    expect(isLikelyInstagramSingleItemUrl("https://www.instagram.com/stories/codex/1234567890/")).toBe(false)
+    expect(isLikelyTwitterStatusUrl("https://x.com/codex/status/1234567890/video/1")).toBe(true)
+    expect(isLikelyTwitterStatusUrl("https://twitter.com/codex/statuses/1234567890/photo/1")).toBe(true)
+    expect(isLikelyTwitterStatusUrl("https://mobile.twitter.com/i/status/1234567890")).toBe(true)
+    expect(isLikelyTwitterStatusUrl("https://twitter.com/codex")).toBe(false)
+    expect(isLikelyTwitterStatusUrl("https://twitter.com/search?q=codex")).toBe(false)
+    expect(isLikelyPinterestPinUrl("https://www.pinterest.com/pin/1234567890/")).toBe(true)
+    expect(isLikelyPinterestPinUrl("https://ca.pinterest.com/pin/1234567890/")).toBe(false)
+    expect(isLikelyPinterestPinUrl("https://www.pinterest.com/example/pin/1234567890/")).toBe(false)
+    expect(isLikelyPinterestPinUrl("https://www.pinterest.com/codex/board-name/")).toBe(false)
+    expect(isLikelyPinterestPinUrl("https://pin.it/abc123")).toBe(false)
+  })
+
   it("labels supported platforms for the UI", () => {
     expect(platformLabel("youTube")).toBe("YouTube")
     expect(platformLabel("soundCloud")).toBe("SoundCloud")
     expect(platformLabel("tikTok")).toBe("TikTok")
+    expect(platformLabel("instagram")).toBe("Instagram")
+    expect(platformLabel("twitter")).toBe("Twitter/X")
+    expect(platformLabel("pinterest")).toBe("Pinterest")
     expect(platformLabel("spotify")).toBe("Spotify")
   })
 })
@@ -89,6 +143,9 @@ describe("settings defaults", () => {
     expect(defaultSettings.theme).toBe("system")
     expect(defaultSettings.defaultFormat).toBe("audio")
     expect(defaultSettings.platformDefaults.soundCloud.mode).toBe("audio")
+    expect(defaultSettings.platformDefaults.instagram).toEqual({ mode: "video", quality: "best" })
+    expect(defaultSettings.platformDefaults.twitter).toEqual({ mode: "video", quality: "best" })
+    expect(defaultSettings.platformDefaults.pinterest).toEqual({ mode: "video", quality: "best" })
     expect(defaultSettings.playlistConcurrency).toBe(2)
     expect(defaultSettings.playlistFolderMode).toBe(false)
     expect(defaultSettings.keepHistory).toBe(true)
@@ -99,6 +156,9 @@ describe("settings defaults", () => {
       youTube: { mode: "video", quality: "video-mp4-1080" },
       soundCloud: { mode: "audio", quality: "best" },
       tikTok: { mode: "video", quality: "video-mp4-1080" },
+      instagram: { mode: "video", quality: "best" },
+      twitter: { mode: "video", quality: "best" },
+      pinterest: { mode: "video", quality: "best" },
     })
   })
 
@@ -115,6 +175,10 @@ describe("settings defaults", () => {
       mode: "video",
       quality: "best",
     })
+    expect(normalizePlatformDefaults({ instagram: { mode: "audio", quality: "audio-m4a" } }).instagram).toEqual({
+      mode: "audio",
+      quality: "audio-m4a",
+    })
   })
 
   it("resolves platform defaults with unsupported platforms falling back to global defaults", () => {
@@ -129,6 +193,7 @@ describe("settings defaults", () => {
     }
 
     expect(defaultForPlatform(settings, "youTube")).toEqual({ mode: "video", quality: "video-mp4-720" })
+    expect(defaultForPlatform({ ...settings, platformDefaults: { ...settings.platformDefaults, twitter: { mode: "video", quality: "video-mp4-best" } } }, "twitter")).toEqual({ mode: "video", quality: "video-mp4-best" })
     expect(defaultForPlatform(settings, "unsupported")).toEqual({ mode: "audio", quality: "audio-m4a" })
   })
 })

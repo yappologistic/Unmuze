@@ -10,7 +10,7 @@ The app is local-first. It does not require an account, does not use a cloud bac
 
 ## What It Does
 
-- Accepts public YouTube, SoundCloud, and individual TikTok video URLs, including YouTube playlists and SoundCloud sets in Playlist mode.
+- Accepts public YouTube, SoundCloud, TikTok, Instagram, Twitter/X, and Pinterest media URLs, including YouTube playlists and SoundCloud sets in Playlist mode.
 - Detects the platform automatically.
 - Shows available metadata when local tooling can inspect the URL.
 - Installs checksum-verified managed copies of `yt-dlp` and FFmpeg into the local app data folder.
@@ -22,7 +22,7 @@ The app is local-first. It does not require an account, does not use a cloud bac
 - Can split chaptered videos, podcasts, lectures, or albums into separate files by chapter.
 - Can save manual subtitles or auto-generated captions as SRT sidecar files for video downloads.
 - Shows progress, cancellation, completed downloads, and a searchable local Library with thumbnails, source metadata, format details, path status, and playlist grouping.
-- Supports platform-specific default format and preset choices for YouTube, SoundCloud, and TikTok.
+- Supports platform-specific default format and preset choices for YouTube, SoundCloud, TikTok, Instagram, Twitter/X, and Pinterest.
 - Can place playlist downloads in a sanitized playlist-named folder.
 - Provides completed-download actions to open saved files or reveal their containing folder.
 - Supports light, dark, and system theme settings.
@@ -31,6 +31,7 @@ The app is local-first. It does not require an account, does not use a cloud bac
 ## What It Does Not Do
 
 - Does not bypass DRM, paywalls, login restrictions, private links, encryption, region locks, or other access controls.
+- Does not download profiles, timelines, boards, collections, hashtags, stories, searches, likes, lists, DMs, or bulk social media sources.
 - Does not download Spotify tracks, albums, or playlists. Spotify does not expose downloadable audio files for this kind of app without protected access.
 - Does not create accounts, collect analytics, or upload media URLs to an Unmuze service.
 
@@ -44,6 +45,12 @@ The app is local-first. It does not require an account, does not use a cloud bac
 | SoundCloud public sets | Yes, with per-item selection | Yes, selected public audio items only when legally permitted |
 | TikTok public video URLs | Yes, when local tools can access metadata | Yes, individual public videos only when legally permitted |
 | TikTok profiles/playlists | Unsupported message | No |
+| Instagram public post, reel, reels, and TV URLs | Yes, when local tools can access metadata | Yes, individual public video/media items only when legally permitted |
+| Instagram profiles, stories, hashtags, searches, collections | Unsupported message | No |
+| Twitter/X public status URLs | Yes, when local tools can access metadata | Yes, individual public posts only when legally permitted |
+| Twitter/X profiles, timelines, searches, lists, communities | Unsupported message | No |
+| Pinterest public Pin URLs under `pinterest.com/pin/{id}` | Yes, when local tools can access metadata | Yes, individual public video pins only when legally permitted |
+| Pinterest boards, profiles, searches, and `pin.it` short links | Unsupported message | No |
 | Spotify | Protected-platform explanation only | No |
 | Other sites | Unsupported message | No |
 

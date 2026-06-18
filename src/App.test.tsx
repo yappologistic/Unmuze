@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import App from "@/App"
 import type { HistoryItem } from "@/lib/media"
-import { inspectMedia, inspectPlaylist, saveSettings, startDownload } from "@/lib/tauri"
+import { checkPaths, inspectMedia, inspectPlaylist, loadHistory, saveSettings, startDownload } from "@/lib/tauri"
 import { check } from "@tauri-apps/plugin-updater"
 
 const { downloadEvents, libraryItems, revealPathMock, startDownloadMock, testSettings } = vi.hoisted(() => ({
@@ -52,11 +52,14 @@ const { downloadEvents, libraryItems, revealPathMock, startDownloadMock, testSet
     defaultOutputFolder: "",
     defaultFormat: "audio",
     defaultQuality: "best",
-    platformDefaults: {
-      youTube: { mode: "audio", quality: "best" },
-      soundCloud: { mode: "audio", quality: "best" },
-      tikTok: { mode: "audio", quality: "best" },
-    },
+      platformDefaults: {
+        youTube: { mode: "audio", quality: "best" },
+        soundCloud: { mode: "audio", quality: "best" },
+        tikTok: { mode: "audio", quality: "best" },
+        instagram: { mode: "video", quality: "best" },
+        twitter: { mode: "video", quality: "best" },
+        pinterest: { mode: "video", quality: "best" },
+      },
     playlistConcurrency: 2,
     playlistFolderMode: false,
     keepHistory: true,
@@ -114,6 +117,8 @@ describe("Library screen", () => {
     downloadEvents.finished = undefined
     vi.mocked(inspectMedia).mockReset()
     vi.mocked(inspectPlaylist).mockReset()
+    vi.mocked(loadHistory).mockClear()
+    vi.mocked(checkPaths).mockClear()
     vi.mocked(check).mockReset()
     vi.mocked(check).mockResolvedValue(null)
     vi.mocked(saveSettings).mockClear()
@@ -126,6 +131,9 @@ describe("Library screen", () => {
       youTube: { mode: "audio", quality: "best" },
       soundCloud: { mode: "audio", quality: "best" },
       tikTok: { mode: "audio", quality: "best" },
+      instagram: { mode: "video", quality: "best" },
+      twitter: { mode: "video", quality: "best" },
+      pinterest: { mode: "video", quality: "best" },
     }
     testSettings.playlistConcurrency = 2
     testSettings.playlistFolderMode = false
@@ -267,6 +275,9 @@ describe("Library screen", () => {
         }),
       ),
     )
+    expect(screen.getByLabelText("Instagram preset")).toBeInTheDocument()
+    expect(screen.getByLabelText("Twitter/X preset")).toBeInTheDocument()
+    expect(screen.getByLabelText("Pinterest preset")).toBeInTheDocument()
   })
 
   it("applies the inspected platform default to save options", async () => {
@@ -291,6 +302,172 @@ describe("Library screen", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Preset")).toHaveValue("video-mp4-720"))
     expect(screen.getByText("Output type: MP4 video. Metadata and artwork are embedded when supported.")).toBeInTheDocument()
+  })
+
+  it.each([
+    ["instagram", "Instagram", "https://www.instagram.com/reel/Codex123/"],
+    ["twitter", "Twitter/X", "https://x.com/codex/status/1234567890"],
+    ["pinterest", "Pinterest", "https://www.pinterest.com/pin/1234567890/"],
+  ] as const)("checks and starts a %s single-item download with platform defaults", async (platform, label, url) => {
+    const expectedFileName = `${label.replace("/", "_")} Fixture Video`
+    testSettings.platformDefaults[platform] = { mode: "video", quality: "video-mp4-720" }
+    vi.mocked(inspectMedia).mockResolvedValueOnce({
+      platform,
+      downloadable: true,
+      title: `${label} Fixture Video`,
+      creator: "Codex Fixture",
+      duration: 60,
+      thumbnail: "https://example.com/thumb.jpg",
+      formats: ["audio", "video"],
+      suggestedFileName: `${label} Fixture Video`,
+    })
+    vi.mocked(startDownload).mockResolvedValueOnce(`C:\\tmp\\${label} Fixture Video.mp4`)
+    render(<App />)
+
+    fireEvent.click(screen.getAllByRole("tab", { name: "Settings" })[0])
+    await waitFor(() => expect(screen.getByLabelText(`${label} preset`)).toHaveValue("video-mp4-720"))
+    fireEvent.click(screen.getAllByRole("tab", { name: "Download" })[0])
+    fireEvent.change(screen.getByLabelText("URL"), { target: { value: url } })
+    fireEvent.click(screen.getByRole("button", { name: "Check" }))
+
+    expect(await screen.findByText(`${label} Fixture Video`)).toBeInTheDocument()
+    expect(screen.getByText(label)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Video", pressed: true })).toBeInTheDocument()
+    expect(screen.getByLabelText("Preset")).toHaveValue("video-mp4-720")
+    fireEvent.change(screen.getByLabelText("Output folder"), { target: { value: "C:\\tmp" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save locally" }))
+
+    await waitFor(() =>
+      expect(vi.mocked(startDownload)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url,
+          mode: "video",
+          quality: "video-mp4-720",
+          outputDir: "C:\\tmp",
+          fileName: expectedFileName,
+        }),
+      ),
+    )
+  })
+
+  it.each([
+    ["This URL requires login, protected access, or has been rate-limited. Unmuze will not bypass platform access limits."],
+    ["No downloadable video was found at this URL."],
+    ["yt-dlp could not read this URL. Update managed tools and try again."],
+  ])("shows blocked inspection responses and keeps save disabled: %s", async (message) => {
+    vi.mocked(inspectMedia).mockResolvedValueOnce({
+      platform: "instagram",
+      downloadable: false,
+      title: null,
+      creator: null,
+      duration: null,
+      thumbnail: null,
+      formats: [],
+      limitation: message,
+      suggestedFileName: null,
+    })
+    render(<App />)
+
+    fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://www.instagram.com/reel/Codex123/" } })
+    fireEvent.click(screen.getByRole("button", { name: "Check" }))
+
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Save locally" })).toBeDisabled()
+  })
+
+  it("renders and filters library records for new platforms", async () => {
+    const mixedHistory: HistoryItem[] = [
+      ...libraryItems,
+      {
+        id: "instagram-library",
+        url: "https://www.instagram.com/reel/Codex123/",
+        title: "Instagram Library Clip",
+        creator: "Instagram Creator",
+        duration: 75,
+        thumbnail: "https://example.com/instagram.jpg",
+        platform: "instagram",
+        path: "C:\\tmp\\instagram-library.mp4",
+        mode: "video",
+        quality: "video-mp4-720",
+        fileName: "Instagram Library Clip",
+        outputDir: "C:\\tmp",
+        completedAt: "2026-06-17T18:00:00.000Z",
+      },
+      {
+        id: "twitter-library",
+        url: "https://x.com/codex/status/1234567890",
+        title: "Twitter Library Clip",
+        creator: "Twitter Creator",
+        duration: 45,
+        thumbnail: "https://example.com/twitter.jpg",
+        platform: "twitter",
+        path: "C:\\tmp\\twitter-library.mp4",
+        mode: "video",
+        quality: "best",
+        fileName: "Twitter Library Clip",
+        outputDir: "C:\\tmp",
+        completedAt: "2026-06-17T19:00:00.000Z",
+      },
+      {
+        id: "pinterest-library",
+        url: "https://www.pinterest.com/pin/1234567890/",
+        title: "Pinterest Library Clip",
+        creator: "Pinterest Creator",
+        duration: 30,
+        thumbnail: "https://example.com/pinterest.jpg",
+        platform: "pinterest",
+        path: "C:\\tmp\\pinterest-library.mp4",
+        mode: "video",
+        quality: "video-mp4-best",
+        fileName: "Pinterest Library Clip",
+        outputDir: "C:\\tmp",
+        completedAt: "2026-06-17T20:00:00.000Z",
+      },
+    ]
+    vi.mocked(loadHistory).mockResolvedValueOnce(mixedHistory)
+    vi.mocked(checkPaths).mockResolvedValueOnce({
+      "C:\\tmp\\instagram-library.mp4": true,
+      "C:\\tmp\\twitter-library.mp4": true,
+      "C:\\tmp\\pinterest-library.mp4": true,
+    })
+    render(<App />)
+
+    openLibrary()
+    expect(await screen.findByText("Instagram Library Clip")).toBeInTheDocument()
+    expect(screen.getByText("Twitter Library Clip")).toBeInTheDocument()
+    expect(screen.getByText("Pinterest Library Clip")).toBeInTheDocument()
+    expect(screen.getAllByText("Instagram").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("Twitter/X").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("Pinterest").length).toBeGreaterThan(0)
+
+    fireEvent.change(screen.getByLabelText("Platform"), { target: { value: "twitter" } })
+    expect(screen.queryByText("Instagram Library Clip")).not.toBeInTheDocument()
+    expect(screen.getByText("Twitter Library Clip")).toBeInTheDocument()
+    expect(screen.queryByText("Pinterest Library Clip")).not.toBeInTheDocument()
+    expect(screen.getByText("https://x.com/codex/status/1234567890")).toBeInTheDocument()
+  })
+
+  it.each([
+    ["instagram", "https://www.instagram.com/reel/Codex123/", "Instagram is supported in Download mode for individual public posts and reels."],
+    ["twitter", "https://x.com/codex/status/1234567890", "Twitter/X is supported in Download mode for individual public posts."],
+    ["pinterest", "https://www.pinterest.com/pin/1234567890/", "Pinterest is supported in Download mode for individual public video pins."],
+  ] as const)("shows playlist limitation messaging for %s URLs", async (platform, url, limitation) => {
+    vi.mocked(inspectPlaylist).mockResolvedValueOnce({
+      platform,
+      downloadable: false,
+      title: null,
+      creator: null,
+      entries: [],
+      limitation,
+    })
+    render(<App />)
+
+    fireEvent.click(screen.getAllByRole("tab", { name: "Playlist" })[0])
+    fireEvent.change(screen.getByLabelText("URL"), { target: { value: url } })
+    fireEvent.click(screen.getByRole("button", { name: "Check" }))
+
+    expect(await screen.findByText(limitation)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Save selected items" })).toBeDisabled()
   })
 
   it("shows inline output folder validation before starting a single download", async () => {
@@ -393,6 +570,7 @@ describe("Library screen", () => {
     fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://www.youtube.com/playlist?list=original" } })
     fireEvent.click(screen.getByRole("button", { name: "Check" }))
     expect(await screen.findByText("Original Playlist")).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole("button", { name: "Check" })).toBeEnabled())
     expect(screen.getByText("1 of 1 selected.")).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://www.youtube.com/playlist?list=changed" } })

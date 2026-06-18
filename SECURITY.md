@@ -16,7 +16,8 @@ Report security issues through GitHub's private vulnerability reporting for this
 
 ## Design Notes
 
-- Downloads are allowlisted to supported public YouTube, SoundCloud, and individual TikTok video URLs.
+- Downloads are allowlisted to supported public YouTube, SoundCloud, TikTok, Instagram, Twitter/X, and Pinterest single-item media URLs.
+- Playlist downloads remain limited to public YouTube playlists and SoundCloud sets.
 - Spotify and unsupported platforms are rejected by the backend, even if UI controls are bypassed.
 - Subprocesses are launched without shell interpolation.
 - Settings and history are stored locally and do not contain credentials.

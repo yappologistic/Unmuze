@@ -1,4 +1,4 @@
-export type Platform = "youTube" | "soundCloud" | "tikTok" | "spotify" | "unsupported"
+export type Platform = "youTube" | "soundCloud" | "tikTok" | "instagram" | "twitter" | "pinterest" | "spotify" | "unsupported"
 export type DownloadMode = "audio" | "video"
 export type DownloadPreset =
   | "best"
@@ -81,7 +81,7 @@ export type Settings = {
   keepHistory: boolean
 }
 
-export type PlatformWithDefaults = "youTube" | "soundCloud" | "tikTok"
+export type PlatformWithDefaults = "youTube" | "soundCloud" | "tikTok" | "instagram" | "twitter" | "pinterest"
 
 export type PlatformDefault = {
   mode: DownloadMode
@@ -163,6 +163,9 @@ export const defaultSettings: Settings = {
     youTube: { mode: "audio", quality: "best" },
     soundCloud: { mode: "audio", quality: "best" },
     tikTok: { mode: "audio", quality: "best" },
+    instagram: { mode: "video", quality: "best" },
+    twitter: { mode: "video", quality: "best" },
+    pinterest: { mode: "video", quality: "best" },
   },
   playlistConcurrency: 2,
   playlistFolderMode: false,
@@ -232,6 +235,9 @@ export function defaultPlatformDefaults(format: DownloadMode = "audio", quality:
     youTube: normalizePlatformDefault("youTube", undefined, { mode: format, quality }),
     soundCloud: normalizePlatformDefault("soundCloud", undefined, { mode: format, quality }),
     tikTok: normalizePlatformDefault("tikTok", undefined, { mode: format, quality }),
+    instagram: normalizePlatformDefault("instagram", undefined, { mode: "video", quality: "best" }),
+    twitter: normalizePlatformDefault("twitter", undefined, { mode: "video", quality: "best" }),
+    pinterest: normalizePlatformDefault("pinterest", undefined, { mode: "video", quality: "best" }),
   }
 }
 
@@ -245,11 +251,14 @@ export function normalizePlatformDefaults(
     youTube: normalizePlatformDefault("youTube", value?.youTube, fallback),
     soundCloud: normalizePlatformDefault("soundCloud", value?.soundCloud, fallback),
     tikTok: normalizePlatformDefault("tikTok", value?.tikTok, fallback),
+    instagram: normalizePlatformDefault("instagram", value?.instagram, { mode: "video", quality: "best" }),
+    twitter: normalizePlatformDefault("twitter", value?.twitter, { mode: "video", quality: "best" }),
+    pinterest: normalizePlatformDefault("pinterest", value?.pinterest, { mode: "video", quality: "best" }),
   }
 }
 
 export function defaultForPlatform(settings: Settings, platform: Platform): PlatformDefault {
-  if (platform === "youTube" || platform === "soundCloud" || platform === "tikTok") {
+  if (platform === "youTube" || platform === "soundCloud" || platform === "tikTok" || platform === "instagram" || platform === "twitter" || platform === "pinterest") {
     return normalizePlatformDefault(platform, settings.platformDefaults?.[platform], {
       mode: settings.defaultFormat,
       quality: settings.defaultQuality,
@@ -325,6 +334,9 @@ export function detectPlatform(rawUrl: string): Platform {
     if (hostname === "youtube.com" || hostname.endsWith(".youtube.com") || hostname === "youtu.be") return "youTube"
     if (hostname === "soundcloud.com" || hostname.endsWith(".soundcloud.com")) return "soundCloud"
     if (hostname === "tiktok.com" || hostname.endsWith(".tiktok.com")) return "tikTok"
+    if (isInstagramHost(hostname)) return "instagram"
+    if (isTwitterHost(hostname)) return "twitter"
+    if (isPinterestHost(hostname)) return "pinterest"
     if (hostname === "spotify.com" || hostname.endsWith(".spotify.com")) return "spotify"
     return "unsupported"
   } catch {
@@ -335,6 +347,26 @@ export function detectPlatform(rawUrl: string): Platform {
     if (value.includes("spotify.com/")) return "spotify"
     return "unsupported"
   }
+}
+
+function normalizedHost(url: URL) {
+  return url.hostname.toLowerCase().replace(/^www\./, "")
+}
+
+function pathSegments(url: URL) {
+  return url.pathname.split("/").filter(Boolean)
+}
+
+function isInstagramHost(hostname: string) {
+  return hostname === "instagram.com"
+}
+
+function isTwitterHost(hostname: string) {
+  return hostname === "twitter.com" || hostname === "mobile.twitter.com" || hostname === "x.com"
+}
+
+function isPinterestHost(hostname: string) {
+  return hostname === "pinterest.com"
 }
 
 export function isLikelyTikTokVideoUrl(rawUrl: string) {
@@ -350,6 +382,51 @@ export function isLikelyTikTokVideoUrl(rawUrl: string) {
   }
 }
 
+export function isLikelyInstagramSingleItemUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl.trim())
+    const hostname = normalizedHost(url)
+    if (!isInstagramHost(hostname)) return false
+    const [kind, shortcode, ...rest] = pathSegments(url)
+    return ["p", "reel", "reels", "tv"].includes((kind || "").toLowerCase()) && Boolean(shortcode) && rest.length === 0
+  } catch {
+    return false
+  }
+}
+
+export function isLikelyTwitterStatusUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl.trim())
+    const hostname = normalizedHost(url)
+    if (!isTwitterHost(hostname)) return false
+    const segments = pathSegments(url).map((segment) => segment.toLowerCase())
+    const idPattern = /^\d+$/
+    const suffixIsSafe = (suffix: string[]) => suffix.length === 0 || (suffix.length === 2 && ["photo", "video"].includes(suffix[0]) && idPattern.test(suffix[1]))
+    if (segments[0] === "i" && segments[1] === "web" && segments[2] === "status" && idPattern.test(segments[3] || "")) {
+      return suffixIsSafe(segments.slice(4))
+    }
+    if (segments[0] === "i" && segments[1] === "status" && idPattern.test(segments[2] || "")) {
+      return suffixIsSafe(segments.slice(3))
+    }
+    const statusIndex = segments.findIndex((segment) => segment === "status" || segment === "statuses")
+    return statusIndex === 1 && Boolean(segments[0]) && idPattern.test(segments[2] || "") && suffixIsSafe(segments.slice(3))
+  } catch {
+    return false
+  }
+}
+
+export function isLikelyPinterestPinUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl.trim())
+    const hostname = normalizedHost(url)
+    if (!isPinterestHost(hostname)) return false
+    const segments = pathSegments(url).map((segment) => segment.toLowerCase())
+    return segments[0] === "pin" && Boolean(segments[1]) && segments.length === 2
+  } catch {
+    return false
+  }
+}
+
 export function validateMediaUrl(rawUrl: string): { valid: true; url: URL } | { valid: false; message: string } {
   try {
     const url = new URL(rawUrl.trim())
@@ -358,10 +435,19 @@ export function validateMediaUrl(rawUrl: string): { valid: true; url: URL } | { 
     }
     const platform = detectPlatform(url.toString())
     if (platform === "unsupported") {
-      return { valid: false, message: "This app currently supports permitted public YouTube, SoundCloud, and TikTok URLs." }
+      return { valid: false, message: "This app currently supports permitted public YouTube, SoundCloud, TikTok, Instagram, Twitter/X, and Pinterest URLs." }
     }
     if (platform === "tikTok" && !isLikelyTikTokVideoUrl(url.toString())) {
       return { valid: false, message: "Paste an individual public TikTok video URL, not a profile or playlist." }
+    }
+    if (platform === "instagram" && !isLikelyInstagramSingleItemUrl(url.toString())) {
+      return { valid: false, message: "Paste an individual public Instagram post, reel, or TV URL, not a profile, story, hashtag, or search." }
+    }
+    if (platform === "twitter" && !isLikelyTwitterStatusUrl(url.toString())) {
+      return { valid: false, message: "Paste an individual public Twitter/X post URL, not a profile, search, list, or timeline." }
+    }
+    if (platform === "pinterest" && !isLikelyPinterestPinUrl(url.toString())) {
+      return { valid: false, message: "Paste an individual public Pinterest video Pin URL under /pin/, not a board, profile, search, or pin.it short link." }
     }
     return { valid: true, url }
   } catch {
@@ -420,9 +506,15 @@ export function platformLabel(platform: Platform) {
       ? "SoundCloud"
       : platform === "tikTok"
         ? "TikTok"
-        : platform === "spotify"
-          ? "Spotify"
-          : "Unsupported"
+        : platform === "instagram"
+          ? "Instagram"
+          : platform === "twitter"
+            ? "Twitter/X"
+            : platform === "pinterest"
+              ? "Pinterest"
+              : platform === "spotify"
+                ? "Spotify"
+                : "Unsupported"
 }
 
 export function formatDuration(seconds?: number | null) {

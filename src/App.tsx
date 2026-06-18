@@ -370,7 +370,13 @@ function App() {
               return next
             })
           }
-          return { ...item, status, progress: status === "completed" ? 100 : item.progress, path: payload.path, message: status === "completed" ? "Saved locally." : "Download failed." }
+          return {
+            ...item,
+            status,
+            progress: status === "completed" ? 100 : item.progress,
+            path: payload.path,
+            message: status === "completed" ? "Saved locally." : payload.message ?? "Download failed.",
+          }
         }),
       )
       if (isPlaylistQueued) {
@@ -1031,7 +1037,7 @@ function DownloadScreen(props: {
         <Card className="overflow-hidden">
           <CardHeader>
             <CardTitle className="text-lg">Media URL</CardTitle>
-            <CardDescription>Supported: permitted public YouTube, SoundCloud, and individual TikTok video URLs. Spotify links are explained but not downloaded.</CardDescription>
+            <CardDescription>Supported: permitted public YouTube, SoundCloud, TikTok, Instagram, Twitter/X, and Pinterest media URLs. Spotify links are explained but not downloaded.</CardDescription>
           </CardHeader>
           <CardContent>
             <FieldGroup>
@@ -1202,7 +1208,7 @@ function PlaylistScreen(props: {
     if (nextMode === "audio") props.setSaveSubtitles(false)
   }
   const playlistHint = props.url.trim()
-    ? props.validationMessage || (!isLikelyPlaylistUrl(props.url) ? `Detected: ${platformLabel(props.platform)}. Playlist mode supports YouTube playlists and SoundCloud sets only.` : `Detected: ${platformLabel(props.platform)}`)
+    ? props.validationMessage || (!isLikelyPlaylistUrl(props.url) ? `Detected: ${platformLabel(props.platform)}. Playlist mode supports YouTube playlists and SoundCloud sets only; use Download for individual TikTok, Instagram, Twitter/X, and Pinterest links.` : `Detected: ${platformLabel(props.platform)}`)
     : "Paste a YouTube playlist or SoundCloud set URL to begin."
   const playlistFolderName = props.inspection?.title ? sanitizeFilename(props.inspection.title) : "Playlist"
   const playlistFolderDescription = props.inspection?.downloadable
@@ -1267,7 +1273,7 @@ function PlaylistScreen(props: {
                       ? "YouTube playlists can be saved as audio or video."
                       : props.inspection.platform === "soundCloud"
                         ? "SoundCloud playlists are audio only."
-                        : "TikTok is supported in Download mode for individual public videos."
+                        : "Use Download mode for individual public TikTok, Instagram, Twitter/X, and Pinterest media URLs."
                     : "Video becomes available after inspecting a YouTube playlist."}
                 </FieldDescription>
               </Field>
@@ -1912,6 +1918,9 @@ const platformDefaultRows: Array<{ platform: PlatformWithDefaults; description: 
   { platform: "youTube", description: "Applies to videos and playlists after inspection." },
   { platform: "soundCloud", description: "SoundCloud downloads are audio-only." },
   { platform: "tikTok", description: "Applies to individual TikTok videos after inspection." },
+  { platform: "instagram", description: "Applies to individual Instagram posts, reels, and TV URLs after inspection." },
+  { platform: "twitter", description: "Applies to individual Twitter/X posts after inspection." },
+  { platform: "pinterest", description: "Applies to individual Pinterest video pins after inspection." },
 ]
 
 function PlatformDefaultsPanel({
@@ -2211,8 +2220,8 @@ function HelpScreen() {
           <CardDescription>Supported local workflows for permitted public media.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 text-sm font-medium leading-6 text-muted-foreground">
-          <p>Unmuze can install managed media tools locally, inspect supported public YouTube, SoundCloud, and TikTok URLs, and save audio or video where legally permitted.</p>
-          <p>Playlist mode can save selected public items with a configurable concurrency limit, per-item progress, and cancellation.</p>
+          <p>Unmuze can install managed media tools locally, inspect supported public YouTube, SoundCloud, TikTok, Instagram, Twitter/X, and Pinterest URLs, and save audio or video where legally permitted.</p>
+          <p>Playlist mode can save selected public YouTube playlist and SoundCloud set items with a configurable concurrency limit, per-item progress, and cancellation.</p>
           <p>Audio and video presets cover common formats, and supported downloads can embed metadata, source URLs, and artwork.</p>
           <p>Advanced options can split chaptered sources into separate files and save available video subtitles as SRT sidecar files.</p>
         </CardContent>
@@ -2224,6 +2233,7 @@ function HelpScreen() {
         </CardHeader>
         <CardContent className="flex flex-col gap-3 text-sm font-medium leading-6 text-muted-foreground">
           <p>Unmuze does not bypass DRM, paywalls, login restrictions, encryption, region locks, private links, or other access controls.</p>
+          <p>Instagram, Twitter/X, and Pinterest support is limited to individual public media URLs; profiles, timelines, boards, searches, stories, lists, and bulk downloads are not supported.</p>
           <p>Spotify tracks, albums, and playlists cannot be downloaded because Spotify does not expose downloadable media files for this kind of app.</p>
           <p>It stores settings and Library records locally. It does not create accounts or send your library to a cloud service.</p>
         </CardContent>
