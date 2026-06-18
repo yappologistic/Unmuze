@@ -45,7 +45,7 @@ describe("media URL handling", () => {
     expect(detectPlatform("https://ca.pinterest.com/pin/1234567890/")).toBe("unsupported")
     expect(detectPlatform("https://api.x.com/codex/status/1234567890")).toBe("unsupported")
     expect(detectPlatform("https://open.spotify.com/track/abc")).toBe("spotify")
-    expect(detectPlatform("https://pin.it/abc123")).toBe("unsupported")
+    expect(detectPlatform("https://pin.it/abc123")).toBe("pinterest")
     expect(detectPlatform("https://example.com/file.mp4")).toBe("unsupported")
   })
 
@@ -62,6 +62,7 @@ describe("media URL handling", () => {
     expect(validateMediaUrl("https://twitter.com/codex/statuses/1234567890/photo/1").valid).toBe(true)
     expect(validateMediaUrl("https://mobile.twitter.com/i/web/status/1234567890").valid).toBe(true)
     expect(validateMediaUrl("https://www.pinterest.com/pin/1234567890/").valid).toBe(true)
+    expect(validateMediaUrl("https://pin.it/abc123").valid).toBe(true)
     expect(validateMediaUrl("https://www.tiktok.com/@artist").valid).toBe(false)
     expect(validateMediaUrl("https://www.instagram.com/codex/").valid).toBe(false)
     expect(validateMediaUrl("https://help.instagram.com/p/Codex123/").valid).toBe(false)
@@ -72,7 +73,7 @@ describe("media URL handling", () => {
     expect(validateMediaUrl("https://www.pinterest.com/codex/board-name/").valid).toBe(false)
     expect(validateMediaUrl("https://www.pinterest.com/example/pin/1234567890/").valid).toBe(false)
     expect(validateMediaUrl("https://www.pinterest.com/search/pins/?q=codex").valid).toBe(false)
-    expect(validateMediaUrl("https://pin.it/abc123").valid).toBe(false)
+    expect(validateMediaUrl("https://pin.it/abc123/extra").valid).toBe(false)
     expect(validateMediaUrl("ftp://youtu.be/abc").valid).toBe(false)
     expect(validateMediaUrl("not a url").valid).toBe(false)
     expect(validateMediaUrl("https://example.com/video").valid).toBe(false)
@@ -109,10 +110,11 @@ describe("media URL handling", () => {
     expect(isLikelyTwitterStatusUrl("https://twitter.com/codex")).toBe(false)
     expect(isLikelyTwitterStatusUrl("https://twitter.com/search?q=codex")).toBe(false)
     expect(isLikelyPinterestPinUrl("https://www.pinterest.com/pin/1234567890/")).toBe(true)
+    expect(isLikelyPinterestPinUrl("https://pin.it/abc123")).toBe(true)
     expect(isLikelyPinterestPinUrl("https://ca.pinterest.com/pin/1234567890/")).toBe(false)
     expect(isLikelyPinterestPinUrl("https://www.pinterest.com/example/pin/1234567890/")).toBe(false)
     expect(isLikelyPinterestPinUrl("https://www.pinterest.com/codex/board-name/")).toBe(false)
-    expect(isLikelyPinterestPinUrl("https://pin.it/abc123")).toBe(false)
+    expect(isLikelyPinterestPinUrl("https://pin.it/abc123/extra")).toBe(false)
   })
 
   it("labels supported platforms for the UI", () => {

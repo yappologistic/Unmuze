@@ -17,6 +17,7 @@ Report security issues through GitHub's private vulnerability reporting for this
 ## Design Notes
 
 - Downloads are allowlisted to supported public YouTube, SoundCloud, TikTok, Instagram, Twitter/X, and Pinterest single-item media URLs.
+- `pin.it` short links are resolved by the backend and accepted only when they resolve to canonical Pinterest Pin URLs.
 - Playlist downloads remain limited to public YouTube playlists and SoundCloud sets.
 - Spotify and unsupported platforms are rejected by the backend, even if UI controls are bypassed.
 - Subprocesses are launched without shell interpolation.

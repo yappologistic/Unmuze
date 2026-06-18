@@ -49,8 +49,8 @@ The app is local-first. It does not require an account, does not use a cloud bac
 | Instagram profiles, stories, hashtags, searches, collections | Unsupported message | No |
 | Twitter/X public status URLs | Yes, when local tools can access metadata | Yes, individual public posts only when legally permitted |
 | Twitter/X profiles, timelines, searches, lists, communities | Unsupported message | No |
-| Pinterest public Pin URLs under `pinterest.com/pin/{id}` | Yes, when local tools can access metadata | Yes, individual public video pins only when legally permitted |
-| Pinterest boards, profiles, searches, and `pin.it` short links | Unsupported message | No |
+| Pinterest public Pin URLs under `pinterest.com/pin/{id}` and `pin.it` short links that resolve to pins | Yes, when local tools can access metadata | Yes, individual public video pins only when legally permitted |
+| Pinterest boards, profiles, searches, and short links that do not resolve to pins | Unsupported message | No |
 | Spotify | Protected-platform explanation only | No |
 | Other sites | Unsupported message | No |
 

@@ -336,7 +336,7 @@ export function detectPlatform(rawUrl: string): Platform {
     if (hostname === "tiktok.com" || hostname.endsWith(".tiktok.com")) return "tikTok"
     if (isInstagramHost(hostname)) return "instagram"
     if (isTwitterHost(hostname)) return "twitter"
-    if (isPinterestHost(hostname)) return "pinterest"
+    if (isPinterestHost(hostname) || isPinterestShortHost(hostname)) return "pinterest"
     if (hostname === "spotify.com" || hostname.endsWith(".spotify.com")) return "spotify"
     return "unsupported"
   } catch {
@@ -367,6 +367,10 @@ function isTwitterHost(hostname: string) {
 
 function isPinterestHost(hostname: string) {
   return hostname === "pinterest.com"
+}
+
+function isPinterestShortHost(hostname: string) {
+  return hostname === "pin.it"
 }
 
 export function isLikelyTikTokVideoUrl(rawUrl: string) {
@@ -419,6 +423,10 @@ export function isLikelyPinterestPinUrl(rawUrl: string) {
   try {
     const url = new URL(rawUrl.trim())
     const hostname = normalizedHost(url)
+    if (isPinterestShortHost(hostname)) {
+      const segments = pathSegments(url)
+      return segments.length === 1 && Boolean(segments[0])
+    }
     if (!isPinterestHost(hostname)) return false
     const segments = pathSegments(url).map((segment) => segment.toLowerCase())
     return segments[0] === "pin" && Boolean(segments[1]) && segments.length === 2
@@ -447,7 +455,7 @@ export function validateMediaUrl(rawUrl: string): { valid: true; url: URL } | { 
       return { valid: false, message: "Paste an individual public Twitter/X post URL, not a profile, search, list, or timeline." }
     }
     if (platform === "pinterest" && !isLikelyPinterestPinUrl(url.toString())) {
-      return { valid: false, message: "Paste an individual public Pinterest video Pin URL under /pin/, not a board, profile, search, or pin.it short link." }
+      return { valid: false, message: "Paste an individual public Pinterest video Pin URL under /pin/ or a pin.it short link, not a board, profile, or search." }
     }
     return { valid: true, url }
   } catch {

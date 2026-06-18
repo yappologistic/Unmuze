@@ -8,7 +8,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use url::Url;
@@ -604,7 +604,7 @@ fn detect_platform(url: &str) -> Platform {
         Platform::Instagram
     } else if is_twitter_host(&host) {
         Platform::Twitter
-    } else if is_pinterest_host(&host) {
+    } else if is_pinterest_host(&host) || is_pinterest_short_host(&host) {
         Platform::Pinterest
     } else if host == "spotify.com" || host.ends_with(".spotify.com") {
         Platform::Spotify
@@ -623,6 +623,10 @@ fn is_twitter_host(host: &str) -> bool {
 
 fn is_pinterest_host(host: &str) -> bool {
     host == "pinterest.com"
+}
+
+fn is_pinterest_short_host(host: &str) -> bool {
+    host == "pin.it"
 }
 
 fn url_path_segments(parsed: &Url) -> Vec<String> {
@@ -717,16 +721,97 @@ fn is_twitter_status_url(url: &str) -> bool {
 }
 
 fn is_pinterest_pin_url(url: &str) -> bool {
+    canonical_pinterest_pin_url(url, false).is_some()
+}
+
+fn is_pinterest_short_url(url: &str) -> bool {
     let Ok(parsed) = Url::parse(url.trim()) else {
         return false;
     };
     let raw_host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
     let host = raw_host.strip_prefix("www.").unwrap_or(&raw_host);
-    if !is_pinterest_host(host) {
+    if !is_pinterest_short_host(host) {
         return false;
     }
     let segments = url_path_segments(&parsed);
-    matches!(segments.as_slice(), [kind, id] if kind == "pin" && !id.is_empty())
+    matches!(segments.as_slice(), [code] if !code.is_empty())
+}
+
+fn canonical_pinterest_pin_url(url: &str, allow_share_suffix: bool) -> Option<String> {
+    let parsed = Url::parse(url.trim()).ok()?;
+    let raw_host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
+    let host = raw_host.strip_prefix("www.").unwrap_or(&raw_host);
+    if !is_pinterest_host(host) {
+        return None;
+    }
+    let segments = url_path_segments(&parsed);
+    let [kind, id, rest @ ..] = segments.as_slice() else {
+        return None;
+    };
+    let allowed_suffix =
+        rest.is_empty() || (allow_share_suffix && matches!(rest, [suffix] if suffix == "sent"));
+    if kind != "pin" || id.is_empty() || !allowed_suffix {
+        return None;
+    }
+    Some(format!("https://www.pinterest.com/pin/{}/", id))
+}
+
+fn resolve_supported_media_url(url: &str) -> AppResult<String> {
+    if is_pinterest_short_url(url) {
+        return resolve_pinterest_short_url(url);
+    }
+    Ok(url.trim().to_string())
+}
+
+fn pinterest_short_link_error() -> CommandError {
+    user_error(
+        "This Pinterest short link could not be resolved.",
+        "Open the pin in a browser and paste its pinterest.com/pin/ URL, or try again later.",
+    )
+}
+
+fn resolve_pinterest_short_url(url: &str) -> AppResult<String> {
+    let client = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|_| pinterest_short_link_error())?;
+    let mut current = Url::parse(url.trim()).map_err(|_| pinterest_short_link_error())?;
+    for _ in 0..8 {
+        if let Some(canonical) = canonical_pinterest_pin_url(current.as_str(), true) {
+            return Ok(canonical);
+        }
+        let raw_host = current.host_str().unwrap_or("").to_ascii_lowercase();
+        let host = raw_host.strip_prefix("www.").unwrap_or(&raw_host);
+        if !(is_pinterest_short_host(host)
+            || host == "api.pinterest.com"
+            || is_pinterest_host(host))
+        {
+            return Err(pinterest_short_link_error());
+        }
+        let response = client
+            .get(current.clone())
+            .header(
+                reqwest::header::USER_AGENT,
+                format!("Unmuze/{}", env!("CARGO_PKG_VERSION")),
+            )
+            .send()
+            .map_err(|_| pinterest_short_link_error())?;
+        if response.status().is_redirection() {
+            let location = response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .ok_or_else(pinterest_short_link_error)?;
+            current = current
+                .join(location)
+                .map_err(|_| pinterest_short_link_error())?;
+            continue;
+        }
+        return canonical_pinterest_pin_url(response.url().as_str(), true)
+            .ok_or_else(pinterest_short_link_error);
+    }
+    Err(pinterest_short_link_error())
 }
 
 fn is_download_platform(platform: &Platform) -> bool {
@@ -753,7 +838,7 @@ fn single_item_limitation(platform: &Platform, url: &str) -> Option<&'static str
             "Paste an individual public Twitter/X post URL, not a profile, search, list, or timeline.",
         ),
         Platform::Pinterest if !is_pinterest_pin_url(url) => Some(
-            "Paste an individual public Pinterest video Pin URL under /pin/, not a board, profile, search, or pin.it short link.",
+            "Paste an individual public Pinterest video Pin URL under /pin/ or a pin.it short link, not a board, profile, or search.",
         ),
         _ => None,
     }
@@ -807,6 +892,7 @@ fn ytdlp_error_message(stderr: &str) -> (&'static str, &'static str) {
         );
     }
     if normalized.contains("no video formats")
+        || normalized.contains("no video could be found")
         || normalized.contains("no formats")
         || normalized.contains("requested format is not available")
         || normalized.contains("no downloadable")
@@ -1219,7 +1305,8 @@ fn install_managed_tools(app: AppHandle) -> AppResult<ToolStatus> {
 #[tauri::command]
 fn inspect_media(app: AppHandle, request: InspectRequest) -> AppResult<Inspection> {
     validate_public_url(&request.url)?;
-    let platform = detect_platform(&request.url);
+    let effective_url = resolve_supported_media_url(&request.url)?;
+    let platform = detect_platform(&effective_url);
     match platform {
         Platform::Spotify => Ok(Inspection {
             platform,
@@ -1251,7 +1338,7 @@ fn inspect_media(app: AppHandle, request: InspectRequest) -> AppResult<Inspectio
         | Platform::Instagram
         | Platform::Twitter
         | Platform::Pinterest => {
-            if let Some(message) = single_item_limitation(&platform, &request.url) {
+            if let Some(message) = single_item_limitation(&platform, &effective_url) {
                 return Ok(Inspection {
                     platform,
                     downloadable: false,
@@ -1265,7 +1352,7 @@ fn inspect_media(app: AppHandle, request: InspectRequest) -> AppResult<Inspectio
                     suggested_file_name: None,
                 });
             }
-            inspect_with_ytdlp(&app, &request.url, platform)
+            inspect_with_ytdlp(&app, &effective_url, platform)
         }
     }
 }
@@ -1301,7 +1388,9 @@ fn inspect_playlist(app: AppHandle, request: InspectRequest) -> AppResult<Playli
                 entries: vec![],
             })
         }
-        Platform::YouTube | Platform::SoundCloud => inspect_playlist_with_ytdlp(&app, &request.url, platform),
+        Platform::YouTube | Platform::SoundCloud => {
+            inspect_playlist_with_ytdlp(&app, &request.url, platform)
+        }
     }
 }
 
@@ -1789,14 +1878,15 @@ fn start_download(
     registry: State<DownloadRegistry>,
 ) -> AppResult<String> {
     validate_public_url(&request.url)?;
-    let platform = detect_platform(&request.url);
+    let effective_url = resolve_supported_media_url(&request.url)?;
+    let platform = detect_platform(&effective_url);
     if !is_download_platform(&platform) {
         return Err(user_error(
             "This URL cannot be downloaded by this app.",
             "Use a permitted public YouTube, SoundCloud, TikTok, Instagram, Twitter/X, or Pinterest URL.",
         ));
     }
-    validate_download_url_shape(&platform, &request.url)?;
+    validate_download_url_shape(&platform, &effective_url)?;
     if matches!(platform, Platform::SoundCloud) && request.mode == "video" {
         return Err(user_error(
             "SoundCloud URLs can only be saved as audio.",
@@ -1845,7 +1935,7 @@ fn start_download(
             request.selected_format_id.as_deref(),
         );
     }
-    args.push(request.url.clone());
+    args.push(effective_url);
     let ytdlp = active_tool_path(&app, "yt-dlp");
     let mut child = tool_command(&ytdlp)
         .args(args)
@@ -2030,13 +2120,13 @@ pub fn run() {
 mod tests {
     use super::{
         append_audio_preset_args, append_chapter_args, append_metadata_args, append_subtitle_args,
-        append_video_preset_args, audio_extension, detect_platform, is_download_platform,
-        is_instagram_single_item_url, is_pinterest_pin_url, is_tiktok_video_url,
-        is_twitter_status_url, normalize_settings, parse_history_data, parse_settings_data,
-        playlist_limitation_for_platform, safe_output_path, sanitize_format_id,
-        sanitize_subtitle_language, selected_video_selector, tool_asset,
-        validate_download_url_shape, validate_public_url, video_selector, ytdlp_error_message,
-        Platform, Settings, FFMPEG_VERSION, YT_DLP_VERSION,
+        append_video_preset_args, audio_extension, canonical_pinterest_pin_url, detect_platform,
+        is_download_platform, is_instagram_single_item_url, is_pinterest_pin_url,
+        is_pinterest_short_url, is_tiktok_video_url, is_twitter_status_url, normalize_settings,
+        parse_history_data, parse_settings_data, playlist_limitation_for_platform,
+        safe_output_path, sanitize_format_id, sanitize_subtitle_language, selected_video_selector,
+        tool_asset, validate_download_url_shape, validate_public_url, video_selector,
+        ytdlp_error_message, Platform, Settings, FFMPEG_VERSION, YT_DLP_VERSION,
     };
     use std::{fs, path::Path};
 
@@ -2121,7 +2211,7 @@ mod tests {
         );
         assert_eq!(
             detect_platform("https://pin.it/abc123"),
-            Platform::Unsupported
+            Platform::Pinterest
         );
     }
 
@@ -2177,6 +2267,30 @@ mod tests {
             "https://www.pinterest.com/codex/board-name/"
         ));
         assert!(!is_pinterest_pin_url("https://pin.it/abc123"));
+        assert!(is_pinterest_short_url("https://pin.it/abc123"));
+        assert!(!is_pinterest_short_url("https://pin.it/abc123/extra"));
+        assert_eq!(
+            canonical_pinterest_pin_url(
+                "https://www.pinterest.com/pin/689050811784509468/sent/?invite_code=abc",
+                true
+            )
+            .as_deref(),
+            Some("https://www.pinterest.com/pin/689050811784509468/")
+        );
+        assert_eq!(
+            canonical_pinterest_pin_url(
+                "https://www.pinterest.com/pin/689050811784509468/sent/?invite_code=abc",
+                false
+            ),
+            None
+        );
+        assert_eq!(
+            canonical_pinterest_pin_url(
+                "https://www.pinterest.com/pin/689050811784509468/comments/",
+                true
+            ),
+            None
+        );
     }
 
     #[test]
@@ -2273,6 +2387,13 @@ mod tests {
         );
         assert_eq!(
             ytdlp_error_message("ERROR: no video formats found").0,
+            "No downloadable video was found at this URL."
+        );
+        assert_eq!(
+            ytdlp_error_message(
+                "ERROR: [twitter] 2067198301145808957: No video could be found in this tweet"
+            )
+            .0,
             "No downloadable video was found at this URL."
         );
         assert_eq!(
